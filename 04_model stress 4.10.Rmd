@@ -1,0 +1,1489 @@
+---
+title: "Untitled"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-04-10"
+---
+
+```{r}
+library(dplyr)
+library(haven)
+library(readr)
+library(table1)
+library(tidyr)
+library(lmerTest) 
+library(broom.mixed)
+library(mice)
+library(mitools)
+library(tidyverse)
+library(ggplot2)
+library(openxlsx)
+library(flextable)
+```
+
+
+```{r}
+final_cohort_aces_clean <- readRDS("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_cohort_aces_clean.rds")
+```
+
+
+```{r}
+table(final_cohort_aces_clean$childhood_count,exclude=NULL)
+```
+
+```{r}
+#check the distribution of each ACE count to determine a cutoff
+ace_dist_by_imp <- final_cohort_aces_clean %>%
+  mutate(
+    ace_cat = as.character(childhood_count)
+  ) %>%
+  group_by(imp, ace_cat) %>%
+  summarise(n = n(), .groups = "drop")
+```
+
+
+```{r}
+ace_count_summary <- ace_dist_by_imp %>%
+  group_by(ace_cat) %>%
+  summarise(
+    n_mean = mean(n),
+    .groups = "drop"
+  ) %>%
+  arrange(as.numeric(ace_cat))
+
+ace_count_summary
+
+```
+
+
+```{r}
+#check most common item respondents picked
+childhood_vars <- c("police", "parent_drugs", "parent_abuse",
+                    "orphanage", "fosterhome", "parent_divorce", "parent_died")
+
+# df_imp1 <- final_cohort_aces_clean %>%
+#   filter(imp == 1)
+
+ace_item_counts <- final_cohort_aces_clean %>%
+  select(all_of(childhood_vars)) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "ace_item",
+    values_to = "value"
+  ) %>%
+  summarise(
+    n_yes = sum(value == 1, na.rm = TRUE),
+    .by = ace_item
+  ) %>%
+  arrange(desc(n_yes))
+
+ace_item_counts
+```
+
+
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(
+    ace_count_binary = case_when(
+      childhood_count >= 2 ~ "1",
+      childhood_count <= 1 ~ "0",
+      TRUE ~ NA
+    )
+  )
+
+table(final_cohort_aces_clean$ace_count_binary, exclude=NULL)
+
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(
+    ace_count_binary_f = factor(
+      ace_count_binary,
+      levels = c("0", "1")
+    )
+  )
+
+table(final_cohort_aces_clean$ace_count_binary_f, exclude=NULL)
+```
+
+
+
+```{r}
+stress_data_long <- lapply(1:40, function(i) final_cohort_aces_clean[final_cohort_aces_clean$imp == i, ])
+
+```
+
+
+```{r}
+colnames(stress_data_long[[1]])
+```
+
+```{r}
+memcol <- (seq(2010, 2020, 2))
+```
+
+
+
+
+
+```{r}
+for (i in seq_along(stress_data_long)) {
+  stress_data_long[[i]][35:40] <- lapply(stress_data_long[[i]][35:40], as.numeric)
+  colnames(stress_data_long[[i]])[35:40] <- memcol
+  stress_data_long[[i]] <- stress_data_long[[i]] %>%
+    pivot_longer(
+      cols = 35:40, 
+      names_to = "WAVEID_N",
+      values_to = "memory_imp"
+    )
+  
+  stress_data_long[[i]]$time <- ifelse(
+    stress_data_long[[i]]$baseline_year == 2006 & stress_data_long[[i]]$WAVEID_N == "2010", 0,
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2008 & stress_data_long[[i]]$WAVEID_N == "2012", 0,
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2006 & stress_data_long[[i]]$WAVEID_N == "2012",
+      round(stress_data_long[[i]]$age12 - stress_data_long[[i]]$age10),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2008 & stress_data_long[[i]]$WAVEID_N == "2014",
+      round(stress_data_long[[i]]$age14 - stress_data_long[[i]]$age12),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2006 & stress_data_long[[i]]$WAVEID_N == "2014",
+      round(stress_data_long[[i]]$age14 - stress_data_long[[i]]$age10),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2008 & stress_data_long[[i]]$WAVEID_N == "2016",
+      round(stress_data_long[[i]]$age16 - stress_data_long[[i]]$age12),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2006 & stress_data_long[[i]]$WAVEID_N == "2016",
+      round(stress_data_long[[i]]$age16 - stress_data_long[[i]]$age10),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2008 & stress_data_long[[i]]$WAVEID_N == "2018",
+      round(stress_data_long[[i]]$age18 - stress_data_long[[i]]$age12),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2006 & stress_data_long[[i]]$WAVEID_N == "2018",
+      round(stress_data_long[[i]]$age18 - stress_data_long[[i]]$age10),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2008 & stress_data_long[[i]]$WAVEID_N == "2020",
+      round(stress_data_long[[i]]$age20 - stress_data_long[[i]]$age12),
+    ifelse(
+      stress_data_long[[i]]$baseline_year == 2006 & stress_data_long[[i]]$WAVEID_N == "2020",
+      round(stress_data_long[[i]]$age20 - stress_data_long[[i]]$age10),
+      NA
+    )))))))))))
+}
+
+
+```
+
+
+```{r}
+table(stress_data_long[[1]]$time,exclude=NULL)
+```
+
+```{r}
+for (i in 1:40) {
+  stress_data_long[[i]] <- stress_data_long[[i]][!is.na(stress_data_long[[i]]$time), ]
+}
+
+```
+
+
+```{r}
+table(stress_data_long[[1]]$time,exclude=NULL)
+```
+
+```{r}
+names(stress_data_long[[1]])
+```
+
+
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience == "Unexposed") %>%
+  pull(lifetime_experience) %>%
+  table
+```
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience == "Unexposed") %>%
+  pull(child_died) %>%
+  table
+```
+
+
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience == "Unexposed") %>%
+  pull(major_disaster) %>%
+  table
+```
+
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience == "Unexposed") %>%
+  pull(fire_weapon) %>%
+  table
+```
+
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience == "Unexposed") %>%
+  pull(sp_drugs) %>%
+  table
+```
+
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience =="Unexposed") %>%
+  pull(physical_attack) %>%
+  table
+```
+
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience =="Unexposed") %>%
+  pull(illness) %>%
+  table
+```
+
+```{r}
+stress_data_long[[1]] %>%
+  filter(childhood_experience == "Unexposed") %>%
+  pull(life_threatening) %>%
+  table
+```
+
+
+
+```{r}
+stress_data_long.childhood_experience0<-stress_data_long
+stress_data_long.childhood_experience1<-stress_data_long
+
+for (i in seq_along(stress_data_long.childhood_experience0)){
+  stress_data_long.childhood_experience0[[i]]<-stress_data_long.childhood_experience0[[i]][stress_data_long.childhood_experience0[[i]]$childhood_experience=="Unexposed",]}
+
+for (i in seq_along(stress_data_long.childhood_experience1)){
+  stress_data_long.childhood_experience1[[i]]<-stress_data_long.childhood_experience1[[i]][stress_data_long.childhood_experience1[[i]]$childhood_experience=="Exposed",]}
+```
+
+
+```{r}
+table(stress_data_long.childhood_experience0[[1]]$childhood_experience)
+table(stress_data_long.childhood_experience1[[1]]$childhood_experience)
+```
+
+
+
+```{r}
+length(unique(stress_data_long[[1]]$hhidpn[stress_data_long[[1]]$time == 0]))
+
+length(unique(stress_data_long.childhood_experience0[[1]]$hhidpn[stress_data_long.childhood_experience0[[1]]$time == 0]))
+length(unique(stress_data_long.childhood_experience1[[1]]$hhidpn[stress_data_long.childhood_experience1[[1]]$time == 0]))
+
+length(unique(stress_data_long.childhood_experience0[[2]]$hhidpn[stress_data_long.childhood_experience0[[2]]$time == 0]))
+length(unique(stress_data_long.childhood_experience1[[2]]$hhidpn[stress_data_long.childhood_experience1[[2]]$time == 0]))
+```
+
+
+
+```{r}
+stress_data_long.ace_count_binary_f0<-stress_data_long
+stress_data_long.ace_count_binary_f1<-stress_data_long
+
+for (i in seq_along(stress_data_long.ace_count_binary_f0)){
+  stress_data_long.ace_count_binary_f0[[i]]<-stress_data_long.ace_count_binary_f0[[i]][stress_data_long.ace_count_binary_f0[[i]]$ace_count_binary_f=="0",]}
+
+for (i in seq_along(stress_data_long.ace_count_binary_f1)){
+  stress_data_long.ace_count_binary_f1[[i]]<-stress_data_long.ace_count_binary_f1[[i]][stress_data_long.ace_count_binary_f1[[i]]$ace_count_binary_f=="1",]}
+
+```
+
+
+
+```{r}
+stress_data_long<-imputationList(stress_data_long)
+stress_data_long.childhood_experience0<-imputationList(stress_data_long.childhood_experience0)
+stress_data_long.childhood_experience1<-imputationList(stress_data_long.childhood_experience1)
+```
+
+
+```{r}
+stress_data_long.ace_count_binary_f0<-imputationList(stress_data_long.ace_count_binary_f0)
+stress_data_long.ace_count_binary_f1<-imputationList(stress_data_long.ace_count_binary_f1)
+```
+
+
+
+```{r}
+a <- stress_data_long[[1]]
+b<-a[[1]]
+colnames(b)
+```
+
+```{r}
+vars <- c("centered_cses_index", "pedu_cat", "educ_cent12",
+          "bornsouth", "ragenderf", "raracemf", "maristat01", 
+          "srh01", "base_age_cent65", "childhood_experience", "lifetime_experience","lifetime_count","memory_imp","ace_count_binary_f")
+
+str(stress_data_long$imputations[[1]][vars])
+```
+
+
+
+
+
+```{r}
+model1 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * lifetime_experience +
+         base_age_cent65 * time +
+         (1 + time | hhidpn))
+)
+
+```
+
+
+```{r}
+# model2 <- with(
+#   stress_data_long,
+#   lmer(memory_imp ~ time * lifetime_experience + 
+#          time * centered_cses_index +
+#          time * pedu_cat +
+#          time * educ_cent12 +
+#          time * bornsouth +
+#          time * ragenderf +
+#          time * raracemf + 
+#          time * maristat01 + 
+#          time * srh01+
+#          time * base_age_cent65 +
+#          (1 + time | hhidpn))
+# )
+```
+
+
+```{r}
+#updated the model to include the time * childhood_experience
+model2 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * lifetime_experience + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01 +
+         time * base_age_cent65 +
+         time * childhood_experience +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+# ignore Model 3
+model3 <- with(
+  stress_data_long,
+  lmer(memory_imp ~
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 + 
+         time * childhood_experience +
+         time * aces * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model4 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+
+```{r}
+model5_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+model5_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+```{r}
+models <- list(
+  model1 = model1,
+  model2 = model2,
+  model3 = model3,
+  model4 = model4,
+  model5_group0 = model5_group0,
+  model5_group1 = model5_group1
+)
+
+
+extract_mi_results <- function(model, model_name) {
+  betas <- MIextract(model, fun = fixef)
+  vars  <- MIextract(model, fun = vcov)
+  vars2 <- list()
+  for ( i in 1:40) { vars2[[i]] <- as.matrix(vars[[i]])  }
+  c <- MIcombine(betas, vars2, conf.int = TRUE, conf.level = 0.95)
+  sum_c <- summary(c)
+  
+  names(sum_c) <- c("estimate", "std_error", "lower_95", "upper_95", "missInfo")
+  
+  tStat <- c$coefficients / sqrt(diag(c$variance))
+  pVals <- round(2 * pt(-abs(tStat), df = c$df), 3)
+
+  tibble(
+    model = model_name,
+    term = names(c$coefficients),
+    estimate = sum_c$estimate,
+    std_error = sum_c$std_error,
+    lower_95 = sum_c$lower_95,
+    upper_95 = sum_c$upper_95,
+    p_value = pVals
+  )
+}
+
+main_analysis <- imap_dfr(models, extract_mi_results)
+```
+
+```{r}
+saveRDS(main_analysis, file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/main_analysis_model_result.rds")
+
+```
+
+
+```{r}
+keywords <- c("lifetime_experience", "childhood_experience", "aces")
+
+main_analysis_formatted <- main_analysis %>%
+  filter(str_detect(term, paste(keywords, collapse = "|"))) %>%
+  mutate(
+    model = recode(model,
+                   "model1" = "1",
+                   "model2" = "2",
+                   "model3" = "3",
+                   "model4" = "4",
+                   "model5_group0" = "5 (No childhood adversity)",
+                   "model5_group1" = "5 (Experienced childhood adversity)"
+    ),
+    term = term %>%
+      str_replace_all("lifetime_experienceExposed", "Experienced lifetime traumatic events") %>%
+      str_replace_all("childhood_experienceExposed", "Experienced childhood adversity") %>%
+      str_replace_all("aces", "ACES score") %>%
+      str_replace_all("\\btime\\b", "Time"),
+    
+    Estimate = round(estimate, 3),
+    `Lower 95% CI` = round(lower_95, 3),
+    `Upper 95% CI` = round(upper_95, 3)
+  ) %>%
+  select(Model=model, Term=term, Estimate, `Lower 95% CI`, `Upper 95% CI`)
+
+
+
+main_analysis_formatted %>%
+  flextable() %>%
+  autofit() %>%
+  set_table_properties(width = 0.7, layout = "autofit") %>%
+  fontsize(size = 10) %>%
+  line_spacing(i = 1) %>%
+  font(fontname = "Times New Roman", part = "all")
+```
+
+
+```{r}
+saveRDS(main_analysis_formatted , file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/main_analysis_formatted_result.rds")
+```
+
+
+
+
+
+```{r}
+#Sensitivity analyses 
+#updated the model to include the time * childhood_experience
+model6 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * lifetime_count + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+```{r}
+model6_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * lifetime_count+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+model6_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * lifetime_count+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+models <- list(
+  model6 = model6,
+  model6_group0 = model6_group0,
+  model6_group1 = model6_group1
+)
+
+
+extract_mi_results <- function(model, model_name) {
+  betas <- MIextract(model, fun = fixef)
+  vars  <- MIextract(model, fun = vcov)
+  
+  vars2 <- list()
+  for (i in 1:40) {
+    vars2[[i]] <- as.matrix(vars[[i]])
+  }
+  
+  c <- MIcombine(betas, vars2, conf.int = TRUE, conf.level = 0.95)
+  sum_c <- summary(c)
+  names(sum_c) <- c("estimate", "std_error", "lower_95", "upper_95", "missInfo")
+  
+  tStat <- c$coefficients / sqrt(diag(c$variance))
+  pVals <- round(2 * pt(-abs(tStat), df = c$df), 3)
+  
+  tibble(
+    model = model_name,
+    term = names(c$coefficients),
+    estimate = sum_c$estimate,
+    std_error = sum_c$std_error,
+    lower_95 = sum_c$lower_95,
+    upper_95 = sum_c$upper_95,
+    p_value = pVals
+  )
+}
+
+
+sensitivity_analyses <- imap_dfr(models, extract_mi_results)
+```
+
+```{r}
+saveRDS(sensitivity_analyses, file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/sensitivity_analyses_model6.rds")
+```
+
+
+```{r}
+vars <- c("child_died","major_disaster","fire_weapon","sp_drugs","physical_attack","illness","life_threatening")
+str(stress_data_long$imputations[[1]][vars])
+
+
+```
+
+
+
+```{r}
+#updated the model to include the time * childhood_experience
+model7 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * child_died + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+#updated the model to include the time * childhood_experience
+model8 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * major_disaster + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+#updated the model to include the time * childhood_experience
+model9 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * fire_weapon + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+```{r}
+#time * childhood_experience
+model10 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * sp_drugs + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+#time * childhood_experience
+model11 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * physical_attack + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+#time * childhood_experience
+model12 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * illness + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+#time * childhood_experience
+model13 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * life_threatening + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * childhood_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+models <- list(
+  model7 = model7,
+  model8 = model8,
+  model9 = model9,
+  model10 = model10,
+  model11 = model11,
+  model12 = model12,
+  model13 = model13
+)
+
+extract_mi_results <- function(model, model_name) {
+  betas <- MIextract(model, fun = fixef)
+  vars  <- MIextract(model, fun = vcov)
+  vars2 <- list()
+  for ( i in 1:40) { vars2[[i]] <- as.matrix(vars[[i]])  }
+  c <- MIcombine(betas, vars2, conf.int = TRUE, conf.level = 0.95)
+  sum_c <- summary(c)
+  
+  names(sum_c) <- c("estimate", "std_error", "lower_95", "upper_95", "missInfo")
+  
+  tStat <- c$coefficients / sqrt(diag(c$variance))
+  pVals <- round(2 * pt(-abs(tStat), df = c$df), 3)
+
+  tibble(
+    model = model_name,
+    term = names(c$coefficients),
+    estimate = sum_c$estimate,
+    std_error = sum_c$std_error,
+    lower_95 = sum_c$lower_95,
+    upper_95 = sum_c$upper_95,
+    p_value = pVals
+  )
+}
+
+sensitivity_analyses_7_13 <- imap_dfr(models, extract_mi_results)
+```
+
+
+```{r}
+saveRDS(sensitivity_analyses_7_13, file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/sensitivity_analyses_7_13.rds")
+```
+
+
+
+```{r}
+model14_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * child_died+
+         (1 + time | hhidpn))
+)
+
+
+model14_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * child_died+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model15_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * major_disaster +
+         (1 + time | hhidpn))
+)
+
+
+model15_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * major_disaster +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model16_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * fire_weapon +
+         (1 + time | hhidpn))
+)
+
+
+model16_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * fire_weapon +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model17_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * sp_drugs +
+         (1 + time | hhidpn))
+)
+
+
+
+model17_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * sp_drugs +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model18_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * physical_attack +
+         (1 + time | hhidpn))
+)
+
+
+
+model18_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * physical_attack +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+```{r}
+model19_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * illness +
+         (1 + time | hhidpn))
+)
+
+
+model19_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * illness +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model20_group0 <- with(
+  stress_data_long.childhood_experience0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * life_threatening +
+         (1 + time | hhidpn))
+)
+
+
+model20_group1 <- with(
+  stress_data_long.childhood_experience1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * life_threatening +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+```{r}
+models <- list(
+  model14_group0 = model14_group0,
+  model14_group1 = model14_group1,
+  model15_group0 = model15_group0,
+  model15_group1 = model15_group1,
+  model16_group0 = model16_group0,
+  model16_group1 = model16_group1,
+  model17_group0 = model17_group0,
+  model17_group1 = model17_group1,
+  model18_group0 = model18_group0,
+  model18_group1 = model18_group1,
+  model19_group0 = model19_group0,
+  model19_group1 = model19_group1,
+  model20_group0 = model20_group0,
+  model20_group1 = model20_group1
+)
+
+extract_mi_results <- function(model, model_name) {
+  betas <- MIextract(model, fun = fixef)
+  vars  <- MIextract(model, fun = vcov)
+  vars2 <- list()
+  for ( i in 1:40) { vars2[[i]] <- as.matrix(vars[[i]])  }
+  c <- MIcombine(betas, vars2, conf.int = TRUE, conf.level = 0.95)
+  sum_c <- summary(c)
+  
+  names(sum_c) <- c("estimate", "std_error", "lower_95", "upper_95", "missInfo")
+  
+  tStat <- c$coefficients / sqrt(diag(c$variance))
+  pVals <- round(2 * pt(-abs(tStat), df = c$df), 3)
+
+  tibble(
+    model = model_name,
+    term = names(c$coefficients),
+    estimate = sum_c$estimate,
+    std_error = sum_c$std_error,
+    lower_95 = sum_c$lower_95,
+    upper_95 = sum_c$upper_95,
+    p_value = pVals
+  )
+}
+
+sensitivity_analyses_14_20 <- imap_dfr(models, extract_mi_results)
+```
+
+
+```{r}
+saveRDS(sensitivity_analyses_14_20, file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/sensitivity_analyses_14_20.rds")
+```
+
+
+```{r}
+vars <- c("child_died", "major_disaster", "fire_weapon", 
+          "sp_drugs", "physical_attack", "illness", "life_threatening")
+
+
+long_results <- final_cohort_aces_clean %>%
+  group_by(imp) %>%
+  summarise(across(all_of(vars),
+                   list(
+                     n = ~sum(. == 1, na.rm = TRUE),
+                    pct = ~sum(. == 1, na.rm = TRUE) / n() * 100
+                   ),
+                   .names = "{.col}_{.fn}"),
+            .groups = "drop")
+
+
+summary_results <- long_results %>%
+  summarise(across(everything(), mean))
+
+
+n_results <- summary_results %>%
+  select(ends_with("_n")) %>%
+  rename_with(~gsub("_n", "", .), ends_with("_n"))
+
+pct_results <- summary_results %>%
+  select(ends_with("_pct")) %>%
+  rename_with(~gsub("_pct", "", .), ends_with("_pct"))
+
+
+final_table <- tibble(
+  Event = names(n_results),
+  Mean_N = as.numeric(n_results[1, ]),
+  Mean_Percent = round(as.numeric(pct_results[1, ]), 1)
+)
+
+final_table
+```
+
+
+```{r}
+#use ace_count_binary_f
+
+model21 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time * lifetime_experience + 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01 +
+         time * base_age_cent65 +
+         time * ace_count_binary_f +
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+```{r}
+model22 <- with(
+  stress_data_long,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * ace_count_binary_f * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+
+
+```{r}
+model23_group0 <- with(
+  stress_data_long.ace_count_binary_f0,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+model23_group1 <- with(
+  stress_data_long.ace_count_binary_f1,
+  lmer(memory_imp ~ 
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf + 
+         time * maristat01 + 
+         time * srh01+
+         time * base_age_cent65 +
+         time * lifetime_experience+
+         (1 + time | hhidpn))
+)
+```
+
+
+
+
+
+```{r}
+models <- list(
+  model21 = model21,
+  model22 = model22,
+  model23_group0 = model23_group0,
+  model23_group1 = model23_group1
+)
+
+
+extract_mi_results <- function(model, model_name) {
+  betas <- MIextract(model, fun = fixef)
+  vars  <- MIextract(model, fun = vcov)
+  vars2 <- list()
+  for ( i in 1:40) { vars2[[i]] <- as.matrix(vars[[i]])  }
+  c <- MIcombine(betas, vars2, conf.int = TRUE, conf.level = 0.95)
+  sum_c <- summary(c)
+  
+  names(sum_c) <- c("estimate", "std_error", "lower_95", "upper_95", "missInfo")
+  
+  tStat <- c$coefficients / sqrt(diag(c$variance))
+  pVals <- round(2 * pt(-abs(tStat), df = c$df), 3)
+
+  tibble(
+    model = model_name,
+    term = names(c$coefficients),
+    estimate = sum_c$estimate,
+    std_error = sum_c$std_error,
+    lower_95 = sum_c$lower_95,
+    upper_95 = sum_c$upper_95,
+    p_value = pVals
+  )
+}
+
+ace_count_binary_analysis <- imap_dfr(models, extract_mi_results)
+```
+
+
+
+
+
+```{r}
+keywords <- c("Experienced lifetime traumatic events", "Time:Experienced lifetime traumatic events","time")
+
+ace_count_binary_formatted <- ace_count_binary_analysis  %>%
+  filter(str_detect(term, paste(keywords, collapse = "|"))) %>%
+  mutate(
+    model = recode(model,
+                   "model21" = "21",
+                   "model22" = "22",
+                   "model23_group0" = "23 (No childhood adversity)",
+                   "model23_group1" = "23 (Experienced childhood adversity)"
+    ),
+    term = term %>%
+      str_replace_all("lifetime_experienceExposed", "Experienced lifetime traumatic events") %>%
+      str_replace_all("childhood_experienceExposed", "Experienced childhood adversity") %>%
+      str_replace_all("aces", "ACES score") %>%
+      str_replace_all("\\btime\\b", "Time"),
+    
+    Estimate = round(estimate, 3),
+    `Lower 95% CI` = round(lower_95, 3),
+    `Upper 95% CI` = round(upper_95, 3)
+  ) %>%
+  select(Model=model, Term=term, Estimate, `Lower 95% CI`, `Upper 95% CI`)
+
+
+
+ace_count_binary_formatted %>%
+  flextable() %>%
+  autofit() %>%
+  set_table_properties(width = 0.7, layout = "autofit") %>%
+  fontsize(size = 10) %>%
+  line_spacing(i = 1) %>%
+  font(fontname = "Times New Roman", part = "all")
+```
+
+
+```{r}
+write.csv(
+  ace_count_binary_formatted,
+  "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/ace_count_binary_formatted_model_result.csv",
+  row.names = FALSE
+)
+
+```
+
+
+```{r}
+extract_mi_results <- function(model, model_name) {
+  betas <- MIextract(model, fun = fixef)
+  vars  <- MIextract(model, fun = vcov)
+  vars2 <- list()
+  for ( i in 1:40) { vars2[[i]] <- as.matrix(vars[[i]])  }
+  c <- MIcombine(betas, vars2, conf.int = TRUE, conf.level = 0.95)
+  sum_c <- summary(c)
+  
+  names(sum_c) <- c("estimate", "std_error", "lower_95", "upper_95", "missInfo")
+  
+  tStat <- c$coefficients / sqrt(diag(c$variance))
+  pVals <- round(2 * pt(-abs(tStat), df = c$df), 3)
+
+  tibble(
+    model = model_name,
+    term = names(c$coefficients),
+    estimate = sum_c$estimate,
+    std_error = sum_c$std_error,
+    lower_95 = sum_c$lower_95,
+    upper_95 = sum_c$upper_95,
+    p_value = pVals
+  )
+}
+```
+
+
+```{r}
+model_unadj <- with(
+  stress_data_long,
+  lmer(memory_imp ~ time + (1 + time | hhidpn))
+)
+
+```
+
+
+```{r}
+model2_unadjusted <- with(
+  stress_data_long,
+  lmer(memory_imp ~ 
+         time * base_age_cent65 +
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+model_CA_3way <- with(
+  stress_data_long,
+  lmer(memory_imp ~ 
+         time * childhood_experience * lifetime_experience +
+         time * centered_cses_index +
+         time * pedu_cat +
+         time * educ_cent12 +
+         time * bornsouth +
+         time * ragenderf +
+         time * raracemf +
+         time * maristat01 +
+         time * srh01 +
+         time * base_age_cent65 +
+         (1 + time | hhidpn))
+)
+```
+
+
+```{r}
+models <- list(
+  model1       = model_unadj,
+  model2         = model2_unadjusted,
+  model3     = model_CA_3way
+)
+
+additional_models <- imap_dfr(models, extract_mi_results)
+```
+
+
+```{r}
+write.csv(
+  additional_models,
+  file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/additional_models_results.csv",
+  row.names = FALSE
+)
+```

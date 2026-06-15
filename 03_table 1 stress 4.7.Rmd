@@ -1,0 +1,882 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-04-07"
+---
+
+```{r}
+library(gtsummary)
+library(tidyverse)
+library(magrittr)
+library(labelled)
+library(openxlsx)
+library(haven)
+library(stringr)
+library(gt)
+library(survey)
+library(flextable)
+library(officer)
+```
+
+
+```{r}
+final_data_rand_cses <- readRDS("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_data_rand_cses.rds")
+```
+
+
+```{r}
+rand <- read_sas("D:/OneDrive - University of Southern California/Data/HRS/RANDLongitudinal/RAND HRS Longitudinal File 2020/randhrs1992_2020v2_SAS/randhrs1992_2020v2.sas7bdat")
+```
+
+
+```{r}
+names(rand) <- tolower(names(rand))
+
+rand <- rand %>% 
+  mutate(hhidpn = str_pad(hhidpn,9,pad="0"))
+```
+
+
+```{r}
+rand_filtered<-rand%>%
+  select(hhidpn,racohbyr)
+```
+
+
+
+```{r}
+#convert values from 5 and 1 to 0 and 1 
+binary_cols <- names(final_data_rand_cses)[
+  sapply(final_data_rand_cses, function(x) {
+    all(na.omit(unique(x)) %in% c(1, 5))
+  })
+]
+
+```
+
+
+
+```{r}
+final_data_rand_cses <- final_data_rand_cses %>%
+  mutate(across(all_of(binary_cols), ~ case_when(
+    .x == 5 ~ 0,
+    .x == 1 ~ 1,
+    TRUE ~ NA_real_
+  )))
+```
+
+
+
+
+
+
+```{r}
+suffix_replace <- c(
+  "037a" = "_child_died",
+  "037b" = "_major_disaster",
+  "037c" = "_fire_weapon",
+  "037d" = "_sp_drugs",
+  "037e" = "_physical_attack",
+  "037f" = "_illness",
+  "037g" = "_life_threatening"
+)
+
+
+for (pattern in names(suffix_replace)) {
+  cols_to_rename <- grep(pattern, names(final_data_rand_cses), value = TRUE)
+  if (length(cols_to_rename) > 0) {
+    new_names <- gsub(pattern, suffix_replace[pattern], cols_to_rename)
+    names(final_data_rand_cses)[names(final_data_rand_cses) %in% cols_to_rename] <- new_names
+  }
+}
+```
+
+
+```{r}
+colnames(final_data_rand_cses)
+```
+
+
+
+```{r}
+#create new variable: any_ACE 
+childhood_cols <- c("police", "parent_drugs", "parent_abuse", "orphanage", 
+              "fosterhome", "parent_divorce", "parent_died")
+
+
+final_data_rand_cses$any_ACE <- ifelse(
+  rowSums(final_data_rand_cses[, childhood_cols], na.rm = TRUE) > 0, 
+  1, 
+  0
+)
+
+final_data_rand_cses$any_ACE=factor(
+  final_data_rand_cses$any_ACE, levels = c(0,1), labels = c("No","Yes"))
+```
+
+
+
+```{r}
+#create new variable: any_trauma
+mlb_nlb_cols <- grep("^(mlb|nlb)", names(final_data_rand_cses), value = TRUE)
+
+
+final_data_rand_cses$any_trauma <- ifelse(
+  rowSums(final_data_rand_cses[, mlb_nlb_cols], na.rm = TRUE) > 0,
+  1,
+  0
+)
+
+
+final_data_rand_cses$any_trauma=factor(
+  final_data_rand_cses$any_trauma, levels = c(0,1), labels = c("No","Yes"))
+```
+
+
+```{r}
+pre_imputation_table1<-final_data_rand_cses%>%
+  left_join(rand_filtered,by="hhidpn")
+```
+
+
+```{r}
+table(pre_imputation_table1$racohbyr,exclude=NULL)
+```
+
+```{r}
+pre_imputation_table1$racohbyr <- factor(
+  pre_imputation_table1$racohbyr,
+  levels = 1:8,
+  labels = c(
+    "Ahead (Before 1924)",
+    "CODA (1924–1930)",
+    "HRS (1931–1941)",
+    "War Babies (1942–1947)",
+    "Early Baby Boomers (1948–1953)",
+    "Mid Baby Boomers (1954–1959)",
+    "Late Baby Boomers (1960–1965)",
+    "Early Generation X (1966–1971)"
+  )
+)
+
+```
+
+
+```{r}
+table(pre_imputation_table1$racohbyr,pre_imputation_table1$any_ACE,exclude=NULL)
+```
+
+```{r}
+table(pre_imputation_table1$racohbyr,pre_imputation_table1$any_trauma,exclude=NULL)
+```
+
+
+```{r}
+table(pre_imputation_table1$baseline_year)
+```
+
+
+
+
+```{r}
+pre_imputation_table1 %>%
+  mutate(
+    memimp_baseline = case_when(
+      baseline_year == 2006 ~ memimp10_z,
+      baseline_year == 2008 ~ memimp12_z
+    )
+  ) %>%
+  group_by(racohbyr) %>%
+  summarize(
+    n = n(),
+    mean_memory_z = mean(memimp_baseline, na.rm = TRUE)
+  )
+```
+
+
+
+
+```{r}
+final_data_rand_cses <- final_data_rand_cses %>%
+  mutate(
+    baseline_memory = case_when(
+      baseline_year == 2006 ~ memimp10,
+      baseline_year == 2008 ~ memimp12
+    ),
+    baseline_memory_z = case_when(
+      baseline_year == 2006 ~ memimp10_z,
+      baseline_year == 2008 ~ memimp12_z
+    )
+  )
+
+
+summary_stats_before_z <- final_data_rand_cses %>%
+  summarise(
+    mean_memory = mean(baseline_memory, na.rm = TRUE),
+    sd_memory = sd(baseline_memory, na.rm = TRUE)
+  )
+
+
+summary_stats_after_z <- final_data_rand_cses %>%
+  summarise(
+    mean_memory_z = mean(baseline_memory_z, na.rm = TRUE),
+    sd_memory_z = sd(baseline_memory_z, na.rm = TRUE)
+  )
+
+summary_stats_before_z
+summary_stats_after_z
+```
+
+
+
+```{r}
+pre_imputation_table1_filtered<-pre_imputation_table1%>%
+  select(
+    baseline_age,ragenderf,raracemf,raedyrs,pedu_cat,bornsouth,maristat01,srh01,cses_index,any_ACE,any_trauma)%>%
+  set_variable_labels(baseline_age='Age at analytic baseline (years)',
+                      ragenderf='Gender',
+                      raracemf='Race',
+                      raedyrs='Years of education',
+                      pedu_cat='Parental years of education',
+                      bornsouth='Born in a Southern state',
+                      maristat01= 'Marital status at analytic baseline',
+                      srh01='Self-rated health at analytic baseline',
+                      cses_index='Childhood SES index z-score',
+                      any_ACE='Experienced any childhood adversity event',
+                      any_trauma='Experienced any traumatic event'
+                      )
+```
+
+
+
+
+```{r}
+tab1_cogsamp <- pre_imputation_table1_filtered  %>%  
+  tbl_summary(missing = "ifany", 
+              missing_text="Missing",
+        type = list(
+      all_continuous() ~ "continuous",
+      all_categorical() ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 1,
+      all_categorical() ~ c(0,1)
+    )) %>%
+  add_stat_label(location = "row") %>%
+  modify_column_indent(columns=label, indent=0) %>%
+  bold_labels()
+
+```
+
+```{r}
+tab1_cogsamp 
+```
+
+
+```{r}
+# gtsave(
+#  tab1_cogsamp  %>% as_gt,
+#   file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/tab1_cog_before_imputation.html")
+```
+
+
+```{r}
+tab1_pre_imp_formatted <- as_flex_table(tab1_cogsamp) %>%
+  autofit() %>%
+  fontsize(size = 10) %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  set_table_properties(width = 1, layout = "autofit")
+```
+
+
+```{r}
+# read_docx() %>%
+#   body_add_flextable(value = tab1_pre_imp_formatted) %>%
+#   print(target = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/tab1_preimputation.docx")
+```
+
+
+
+```{r}
+final_cohort_aces_clean <- readRDS("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_cohort_aces_clean.rds")
+```
+
+
+```{r}
+names(final_cohort_aces_clean)
+```
+
+
+```{r}
+final_cohort_aces_clean<-final_cohort_aces_clean%>%
+  group_by(hhidpn) %>%
+  ungroup() %>%
+  mutate(wt = 1 / max(imp)) %>%
+  select(-c(hhidpn)) 
+  
+```
+
+
+
+```{r}
+cat.vars <- c("ragenderf", "raracemf","pedu_cat","bornsouth","maristat01","srh01","lifetime_experience", "childhood_experience")
+str(final_cohort_aces_clean[cat.vars])
+```
+
+
+```{r}
+source("0c_imp_tbl1_function.R")
+
+cat.vars <- c("ragenderf", "raracemf","pedu_cat","bornsouth","maristat01","srh01","lifetime_experience", "childhood_experience")
+cont.vars <- c("baseline_age","raedyrs","cses_index")
+```
+
+
+```{r}
+final_cohort_aces_clean_cat <- final_cohort_aces_clean %>% 
+  svydesign(id = ~ 1, weights = ~ wt, data = .) %>% 
+  tbl_svysummary(
+    by = NULL, 
+    statistic = list(all_categorical() ~ "{n} ({p}%)"),
+    digits = list(all_categorical() ~ c(0, 1)),
+    include = any_of(cat.vars)
+  ) %>%
+  as_tibble()
+
+```
+
+
+```{r}
+final_cohort_aces_clean_cont <-  final_cohort_aces_clean %>% 
+  imp_cts_var_tbl1(cont.vars, grp=NULL)
+```
+
+```{r}
+after_imputation_table1<-final_cohort_aces_clean_cont %>% 
+  filter(!str_detect(variable, "verall")) %>%
+  rename(`**Characteristic**` = variable,
+         `**N = 2,971**` = V1) %>%
+  rbind(final_cohort_aces_clean_cat) %>%
+  flextable()
+```
+
+
+```{r}
+# save_as_docx(after_imputation_table1, path = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/after_imputation_table1.docx")
+```
+
+
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(lifetime_experience = case_when(
+    lifetime_experience == "Exposed" ~ 1,
+    lifetime_experience == "Unexposed" ~ 0
+  ))
+
+table(final_cohort_aces_clean$lifetime_experience,exclude=NULL)
+```
+
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(childhood_experience = case_when(
+    childhood_experience == "Exposed" ~ 1,
+    childhood_experience == "Unexposed" ~ 0
+  ))
+
+table(final_cohort_aces_clean$childhood_experience,exclude=NULL)
+```
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(ragenderf = case_when(
+    ragenderf == "Male" ~ 1,
+    ragenderf == "Female" ~ 2
+  ))
+
+table(final_cohort_aces_clean$ragenderf,exclude=NULL)
+```
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(raracemf = case_when(
+    raracemf == "White" ~ 1,
+    raracemf == "Black" ~ 2,
+    raracemf == "Other" ~ 3
+  ))
+
+table(final_cohort_aces_clean$raracemf,exclude=NULL)
+```
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(pedu_cat = case_when(
+    pedu_cat == "<8 years" ~ 1,
+    pedu_cat == "8-<12 years" ~ 2,
+    pedu_cat == "12 years" ~ 3,
+    pedu_cat == ">12 years" ~ 4
+  ))
+
+table(final_cohort_aces_clean$pedu_cat,exclude=NULL)
+```
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(bornsouth = case_when(
+    bornsouth == "No" ~ 0,
+    bornsouth == "Yes" ~ 1
+  ))
+
+table(final_cohort_aces_clean$bornsouth)
+```
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(maristat01 = case_when(
+    maristat01 == "Married/partnered" ~ 1,
+    maristat01 == "Not married/partnered" ~ 0
+  ))
+
+table(final_cohort_aces_clean$maristat01)
+```
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(srh01 = case_when(
+    srh01 == "Fair/poor" ~ 1,
+    srh01 == "Excellent/very good/good" ~ 0
+  ))
+
+table(final_cohort_aces_clean$srh01)
+```
+
+
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  select(hhidpn,
+    baseline_age, ragenderf, raracemf, raedyrs, pedu_cat, bornsouth,
+    maristat01, srh01, cses_index,
+    police, parent_drugs, parent_abuse, orphanage, fosterhome,
+    parent_divorce, parent_died,
+    child_died, major_disaster, fire_weapon, sp_drugs, physical_attack,
+    illness, life_threatening,
+    lifetime_experience, childhood_experience
+  )
+
+```
+
+
+
+```{r}
+mean_cols <- c("baseline_age", "ragenderf", "raracemf", "raedyrs", "pedu_cat", "bornsouth",
+               "maristat01", "srh01", "cses_index",
+               "police", "parent_drugs", "parent_abuse", "orphanage", "fosterhome",
+               "parent_divorce", "parent_died",
+               "child_died", "major_disaster", "fire_weapon", "sp_drugs", "physical_attack",
+               "illness", "life_threatening",
+               "lifetime_experience", "childhood_experience")
+
+```
+
+
+
+
+
+```{r}
+# vars_to_check <- c("ragenderf", "raracemf", "pedu_cat", "bornsouth")
+# 
+# change_summary <- final_cohort_aces_clean_filtered %>%
+#   group_by(hhidpn) %>%
+#   summarise(across(all_of(vars_to_check), ~n_distinct(.x)), .groups = "drop") %>%
+#   mutate(across(all_of(vars_to_check), ~ .x > 1, .names = "changed_{.col}"))
+# 
+# change_summary_filtered <- change_summary %>%
+#   filter(if_any(starts_with("changed_"), ~. == TRUE))
+
+```
+
+```{r}
+# table(change_summary_filtered$changed_bornsouth)
+```
+
+
+
+```{r}
+final_cohort_aces_clean[mean_cols] <- lapply(final_cohort_aces_clean[mean_cols], as.character)
+final_cohort_aces_clean[mean_cols] <- lapply(final_cohort_aces_clean[mean_cols], as.numeric)
+
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  group_by(hhidpn) %>%
+  summarise(
+    across(all_of(mean_cols), ~mean(.x, na.rm = TRUE))
+  ) %>%
+  ungroup()
+
+```
+
+
+```{r}
+value_summary <- lapply(final_cohort_aces_clean[mean_cols], function(x) sort(unique(x)))
+names(value_summary) <- mean_cols
+
+value_summary
+```
+
+
+```{r}
+mean_cols <- c("baseline_age", "ragenderf", "raracemf", "raedyrs", "pedu_cat", "bornsouth",
+               "maristat01", "srh01", 
+               "police", "parent_drugs", "parent_abuse", "orphanage", "fosterhome",
+               "parent_divorce", "parent_died",
+               "child_died", "major_disaster", "fire_weapon", "sp_drugs", "physical_attack",
+               "illness", "life_threatening",
+               "lifetime_experience", "childhood_experience")
+
+final_cohort_aces_clean[mean_cols] <- lapply(final_cohort_aces_clean[mean_cols], round)
+
+```
+
+
+```{r}
+lapply(final_cohort_aces_clean[mean_cols], unique)
+
+```
+
+```{r}
+#sex/gender
+final_cohort_aces_clean$ragenderf = factor(final_cohort_aces_clean$ragenderf, 
+                                       levels = c(1,2), 
+                                       labels = c("Male","Female"))
+
+#race
+final_cohort_aces_clean$raracemf = factor(final_cohort_aces_clean$raracemf, 
+                                      levels = c(1,2,3), 
+                                      labels = c("White","Black","Other"))
+```
+
+
+```{r}
+final_cohort_aces_clean$pedu_cat = factor(
+  final_cohort_aces_clean$pedu_cat, levels = c(1,2,3,4), labels = c("<8 years", "8-<12 years","12 years",">12 years"))
+```
+
+
+```{r}
+final_cohort_aces_clean$bornsouth = factor(final_cohort_aces_clean$bornsouth, 
+                                       levels = c(0,1), 
+                                       labels = c("No","Yes"))
+
+final_cohort_aces_clean$maristat01 = factor(final_cohort_aces_clean$maristat01, 
+                                       levels = c(1,0), 
+                                       labels = c("Married/partnered","Not married/partnered"))
+
+final_cohort_aces_clean$srh01 = factor(final_cohort_aces_clean$srh01, 
+                                       levels = c(0,1), 
+                                       labels = c("Excellent/very good/good","Fair/poor"))
+
+final_cohort_aces_clean$lifetime_experience <- factor(
+  final_cohort_aces_clean$lifetime_experience,
+  levels = c(0, 1),
+  labels = c('Unexposed','Exposed')
+)
+
+final_cohort_aces_clean$childhood_experience <- factor(
+  final_cohort_aces_clean$childhood_experience,
+  levels = c(0, 1),
+  labels = c('Unexposed','Exposed')
+)
+```
+
+
+```{r}
+final_cohort_aces_clean2<-final_cohort_aces_clean%>%
+  select(baseline_age,ragenderf,raracemf,raedyrs,pedu_cat,bornsouth,maristat01,srh01,cses_index,childhood_experience,lifetime_experience)%>%
+  set_variable_labels(baseline_age='Age at baseline (years)',
+                      ragenderf='Gender',
+                      raracemf='Race',
+                      raedyrs='Years of education',
+                      pedu_cat='Parental years of education',
+                      bornsouth='Born in a Southern state',
+                      maristat01= 'Marital status',
+                      srh01='Self-rated health',
+                      cses_index='Childhood SES index z-score',
+                      childhood_experience='Experienced any childhood adversity event',
+                      lifetime_experience='Experienced any traumatic event')
+```
+
+
+
+```{r}
+tab1_cogsamp2 <- final_cohort_aces_clean2 %>%  
+  tbl_summary(missing = "ifany", 
+              missing_text="Missing",
+        type = list(
+      all_continuous() ~ "continuous",
+      all_categorical() ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 1,
+      all_categorical() ~ 0
+    )) %>%
+  add_stat_label(location = "row") %>%
+  modify_column_indent(columns=label, indent=0) %>%
+  bold_labels()
+```
+
+
+
+```{r}
+tab1_cogsamp2
+```
+
+
+```{r}
+# gtsave(
+#  tab1_cogsamp2 %>% as_gt,
+#   file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output/tab1_cog_after_imputation.html")
+```
+
+
+
+```{r}
+table(final_data_rand_cses$police,exclude=NULL)
+table(final_cohort_aces_clean$police)
+
+table(final_data_rand_cses$parent_drugs,exclude=NULL)
+table(final_cohort_aces_clean$parent_drugs)
+
+table(final_data_rand_cses$parent_abuse,exclude=NULL)
+table(final_cohort_aces_clean$parent_abuse)
+
+table(final_data_rand_cses$orphanage,exclude=NULL)
+table(final_cohort_aces_clean$orphanage)
+
+table(final_data_rand_cses$fosterhome,exclude=NULL)
+table(final_cohort_aces_clean$fosterhome)
+
+table(final_data_rand_cses$parent_divorce,exclude=NULL)
+table(final_cohort_aces_clean$parent_divorce)
+
+table(final_data_rand_cses$parent_died,exclude=NULL)
+table(final_cohort_aces_clean$parent_died)
+```
+
+```{r}
+merged_check <- final_data_rand_cses %>%
+  select(hhidpn, parent_died_orig = parent_died) %>%
+  left_join(
+    final_cohort_aces_clean %>%
+      select(hhidpn, parent_died_imp = parent_died),
+    by = "hhidpn"
+  )
+
+
+problem_cases <- merged_check %>%
+  filter(is.na(parent_died_orig) & parent_died_imp == 1)
+
+problem_cases
+```
+
+```{r}
+merged_check2 <- final_data_rand_cses %>%
+  select(hhidpn, fosterhome_orig = fosterhome) %>%
+  left_join(
+    final_cohort_aces_clean %>%
+      select(hhidpn, fosterhome_imp = fosterhome),
+    by = "hhidpn"
+  )
+
+
+problem_cases2 <- merged_check2 %>%
+  filter(is.na(fosterhome_orig) & fosterhome_imp == 1)
+
+problem_cases2
+```
+
+
+
+```{r}
+childhood_cols <- c("police", "parent_drugs", "parent_abuse", "orphanage", 
+              "fosterhome", "parent_divorce", "parent_died")
+
+a <- final_data_rand_cses %>%
+  filter(hhidpn == "078352010") %>%
+  select(all_of(childhood_cols))
+
+b <- final_data_rand_cses %>%
+  filter(hhidpn == "084137010") %>%
+  select(all_of(childhood_cols))
+
+```
+
+
+
+```{r}
+hhidpn_1 <- final_data_rand_cses$hhidpn[final_data_rand_cses$any_ACE == "Yes"]
+hhidpn_2 <- final_cohort_aces_clean$hhidpn[final_cohort_aces_clean$any_ACE == "Yes"]
+
+h<- setdiff(hhidpn_2, hhidpn_1)
+h
+```
+
+
+```{r}
+a <- final_cohort_aces_clean %>%
+  filter(hhidpn %in% c(53256010, 114203010, 500042010))
+
+```
+
+
+```{r}
+b <- final_data_rand_cses %>%
+  filter(hhidpn %in% c(53256010, 114203010, 500042010))
+```
+
+
+# figure 2
+```{r}
+figure3_data <- read_csv("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/figure 3.csv")
+```
+
+
+
+
+```{r}
+figure3_data <- figure3_data %>%
+  mutate(
+    item = recode(
+      item,
+      "Sp drugs" = "Spouse, partner, or child was addicted to drugs or alcohol",
+      "Physical attack" = "Victim of serious physical attack or assault",
+      "Major disaster" = "Experienced a major disaster",
+      "Life threatening" = "Spouse or child had life-threatening illness or accident",
+      "Illness" = "Experienced life-threatening illness or accident",
+      "Fire weapon" = "Fired or been fired upon in a combat",
+      "Child died" = "Experienced death of a child"
+    )
+  )
+
+```
+
+
+
+```{r}
+figure3_data <- figure3_data %>%
+  mutate(effect = factor(effect, levels = c("main", "time", "interaction")))
+
+figure3_data <- figure3_data %>%
+  mutate(effect = recode(effect,
+    "main" = "Main effect",
+    "time" = "Time effect",
+    "interaction" = "Interaction effect"
+  ))
+
+
+figure3_data <- figure3_data %>%
+  mutate(
+    model = factor(
+      model,
+      levels = c(
+        "Overall",
+        "No childhood adversity",
+        "Experienced childhood adversity"
+        )
+    ),
+
+    item = factor(
+      item,
+      levels = c(
+        "Experienced death of a child",
+        "Experienced a major disaster",
+        "Fired or been fired upon in a combat",
+        "Spouse, partner, or child was addicted to drugs or alcohol",
+        "Victim of serious physical attack or assault",
+        "Experienced life-threatening illness or accident",
+        "Spouse or child had life-threatening illness or accident"
+      )
+    )
+  )
+
+figure3_data <- figure3_data %>%
+  mutate(item = fct_rev(item))
+```
+
+
+
+```{r}
+
+p<-ggplot(figure3_data,
+       aes(x = item, y = estimate, color = model)) +
+  
+  geom_pointrange(
+    aes(ymin = LCI, ymax = UCI),
+    position = position_dodge(width = 0.6),
+    shape = 16,
+    size = 0.2
+  ) +
+  
+  coord_flip() +
+
+  facet_grid(. ~ effect, switch = "y") +
+
+  theme_minimal(base_size = 14) +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(size = 11),
+    
+    panel.spacing = unit(2, "lines"),
+    panel.grid.major.y = element_blank(),
+    legend.position = "bottom"
+  ) +
+  
+  labs(
+    x = NULL,
+    y = "Estimate (95% CI)",
+    color = "Model"
+  )+
+
+  scale_color_manual(
+  breaks = c(
+    "Experienced childhood adversity",
+    "No childhood adversity",
+    "Overall"
+  ),
+  values = c(
+    "Overall" = "#1B9E77",
+    "No childhood adversity" = "#D95F02",
+    "Experienced childhood adversity" = "#7570B3"
+  )
+)
+
+
+
+p
+```
+
+
+```{r}
+# ggsave(
+#   filename = "figure2_2-12.pdf",
+#   plot = p,
+#   path = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Output",
+#   device = "pdf",
+#   width = 12,
+#   height = 6
+# )
+
+
+```
+

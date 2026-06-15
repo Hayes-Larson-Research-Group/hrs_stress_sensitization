@@ -1,0 +1,903 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-04-03"
+---
+
+```{r}
+library(dplyr)
+library(haven)
+library(readr)
+library(tidyr)
+library(broom.mixed)
+library(mice)
+library(mitools)
+library(tidyverse)
+library(ggplot2)
+library(survey)
+library(tableone)
+library(openxlsx)
+library(foreign) 
+library(lavaan)
+```
+
+
+
+
+```{r}
+final_data_rand_cses <- readRDS("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_data_rand_cses_new.rds")
+```
+
+
+
+```{r}
+#convert values from 5 and 1 to 0 and 1 
+binary_cols <- names(final_data_rand_cses)[
+  sapply(final_data_rand_cses, function(x) {
+    all(na.omit(unique(x)) %in% c(1, 5))
+  })
+]
+
+```
+
+
+
+```{r}
+final_data_rand_cses <- final_data_rand_cses %>%
+  mutate(across(all_of(binary_cols), ~ case_when(
+    .x == 5 ~ 0,
+    .x == 1 ~ 1,
+    TRUE ~ NA_real_
+  )))
+```
+
+
+
+
+```{r}
+#create first wordtot variable
+final_data_rand_cses$first_wordtot <- apply(
+  final_data_rand_cses[, grep("^wordtot", names(final_data_rand_cses))], 
+  1,                                
+  function(x) na.omit(x)[1]   
+)
+```
+
+
+
+
+```{r}
+suffix_replace <- c(
+  "037a" = "_child_died",
+  "037b" = "_major_disaster",
+  "037c" = "_fire_weapon",
+  "037d" = "_sp_drugs",
+  "037e" = "_physical_attack",
+  "037f" = "_illness",
+  "037g" = "_life_threatening"
+)
+
+
+for (pattern in names(suffix_replace)) {
+  cols_to_rename <- grep(pattern, names(final_data_rand_cses), value = TRUE)
+  if (length(cols_to_rename) > 0) {
+    new_names <- gsub(pattern, suffix_replace[pattern], cols_to_rename)
+    names(final_data_rand_cses)[names(final_data_rand_cses) %in% cols_to_rename] <- new_names
+  }
+}
+```
+
+
+
+
+```{r}
+#2006/2010 cohort
+base0610i <- final_data_rand_cses %>%
+  filter(baseline_year == 2006) 
+#1580
+
+# save(base0610i,
+#     file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/base0610i_new.RData")
+
+
+
+#2008/2012 cohort
+base0812i <- final_data_rand_cses %>%
+  filter(baseline_year == 2008) 
+#1336
+
+
+# save(base0812i,
+#     file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/base0812i_new.RData")
+```
+
+
+
+
+
+```{r}
+
+imputation.vars_0610 <- c(
+  "police", "parent_drugs", "parent_abuse",
+  grep("^mlb", names(final_data_rand_cses), value = TRUE),
+  "orphanage", "fosterhome", "parent_divorce", "parent_died", "baseline_age", "first_wordtot", "ragenderf", "raracemf", "raedyrs", "pedu_cat", "bornsouth", "cses_index", "maristat", "srh"
+)
+
+```
+
+
+
+```{r}
+imputation.vars_0812 <- c(
+  "police", "parent_drugs", "parent_abuse",
+  grep("^nlb", names(final_data_rand_cses), value = TRUE),
+  "orphanage", "fosterhome", "parent_divorce", "parent_died","baseline_age", "first_wordtot", "ragenderf", "raracemf", "raedyrs", "pedu_cat", "bornsouth", "cses_index", "maristat", "srh"
+)
+
+```
+
+
+
+
+```{r}
+missingpattern0610<-md.pattern(base0610i[,imputation.vars_0610], plot=F)
+missingpattern0812<-md.pattern(base0812i[,imputation.vars_0812], plot=F)
+```
+
+
+```{r}
+missingsummary0610<-data.frame(varname=imputation.vars_0610, pctmiss=NA)
+row.names(missingsummary0610)<-imputation.vars_0610
+for (i in imputation.vars_0610){
+  missingsummary0610[i,"pctmiss"]<-100*sum(is.na(base0610i[,i]))/nrow(base0610i)
+  print(i)
+}
+```
+
+
+
+
+```{r}
+missingsummary0610<-missingsummary0610[order(missingsummary0610$pctmiss),]  
+missingsummary0610
+```
+
+
+```{r}
+missingsummary0812 <- data.frame(varname = imputation.vars_0812, pctmiss = NA)
+row.names(missingsummary0812) <- imputation.vars_0812
+for (i in imputation.vars_0812) {
+  missingsummary0812[i, "pctmiss"] <- 100 * sum(is.na(base0812i[, i])) / nrow(base0812i)
+  print(i)
+}
+
+```
+
+
+```{r}
+missingsummary0812<-missingsummary0812[order(missingsummary0812$pctmiss),]  
+missingsummary0812
+```
+
+
+```{r}
+imp.vars0610<-c(paste(missingsummary0610$varname)) #now imputation variables are ordered
+imp.vars0812<-c(paste(missingsummary0812$varname)) #now imputation variables are ordered
+
+
+sum(duplicated(imp.vars0610))
+sum(duplicated(imp.vars0812))
+```
+
+
+```{r}
+#Imputations for 0610 
+
+in.0610.data<-base0610i[,imp.vars0610]
+in.0610.data<-data.frame(in.0610.data)
+length(imp.vars0610)
+```
+
+
+
+
+```{r}
+#Set variable types
+continuous.vars_0610<-c("cses_index","first_wordtot","baseline_age","raedyrs")
+
+binary.vars_0610 <- c(
+  "police", "parent_drugs", "parent_abuse",
+  grep("^mlb", names(final_data_rand_cses), value = TRUE),
+  "orphanage", "fosterhome", "parent_divorce", "parent_died","ragenderf", "bornsouth"
+)
+
+
+ordinal.vars_0610<-c("srh")
+
+categorical.vars_0610<-c("raracemf","pedu_cat","maristat")
+```
+
+
+
+
+
+```{r}
+#Check that have all variables, no duplicates
+length(c(continuous.vars_0610, binary.vars_0610, ordinal.vars_0610, categorical.vars_0610)) #24
+
+sum(duplicated(c(continuous.vars_0610, binary.vars_0610, ordinal.vars_0610, categorical.vars_0610))) #0  
+```
+
+
+
+
+```{r}
+#Set variable classes by type
+for (i in binary.vars_0610){
+  in.0610.data[,i]<-factor(in.0610.data[,i])}
+for (i in ordinal.vars_0610){
+  in.0610.data[,i]<-factor(in.0610.data[,i], ordered=T)}
+for (i in categorical.vars_0610){
+  in.0610.data[,i]<-factor(in.0610.data[,i], ordered=FALSE)}
+```
+
+
+
+
+
+```{r}
+#recheck classes
+classsum<-data.frame(varname=imp.vars0610, class=NA)
+for (i in imp.vars0610){
+  classsum[classsum$varname==i,"class"]<-(class(in.0610.data[,i])[1])
+}
+classsum
+```
+
+
+
+
+
+
+```{r}
+#Initiate imputations
+ini<-mice(in.0610.data, maxit=0, defaultMethod = c("pmm", "pmm", "pmm", "pmm"), seed=12345)
+  
+ini$method
+meth<-ini$method
+meth
+  
+ini$predictorMatrix
+pred<-ini$predictorMatrix
+```
+
+
+
+
+
+```{r}
+#Run imputations
+imp_pmm_all.0610<-mice(in.0610.data, m=40, maxit=10, pred=pred, meth=meth, 
+                  defaultMethod = c("pmm", "pmm", "pmm", "pmm"), seed=12345)
+```
+
+
+```{r}
+#examine diagnostics
+imp_pmm_all.0610$loggedEvents
+plot(imp_pmm_all.0610)
+```
+
+
+
+```{r}
+#Save final imputed datasets
+temp_base0610i<-list()
+for (i in 1:40){
+  temp_base0610i[[i]]<-complete(imp_pmm_all.0610,action=i)
+    
+  temp_base0610i[[i]]<-cbind(base0610i$hhidpn, temp_base0610i[[i]][,imputation.vars_0610])
+  temp_base0610i[[i]][,"imp"]<-i
+}
+  
+cohort0610_final <-do.call(rbind,temp_base0610i)
+
+# save(cohort0610_final,
+#     file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/cohort0610_final_new.RData")
+```
+
+
+```{r}
+#Imputations for 0812 
+
+in.0812.data<-base0812i[,imp.vars0812]
+in.0812.data<- data.frame(in.0812.data)
+length(imp.vars0812)
+```
+
+
+
+```{r}
+continuous.vars_0812<-c("cses_index","first_wordtot","baseline_age","raedyrs")
+
+binary.vars_0812 <- c(
+  "police", "parent_drugs", "parent_abuse",
+  grep("^nlb", names(final_data_rand_cses), value = TRUE),
+  "orphanage", "fosterhome", "parent_divorce", "parent_died","ragenderf", "bornsouth"
+)
+
+
+ordinal.vars_0812<-c("srh")
+
+categorical.vars_0812<-c("raracemf","pedu_cat","maristat")
+```
+
+
+```{r}
+#Check that have all variables, no duplicates
+length(c(continuous.vars_0812, binary.vars_0812, ordinal.vars_0812, categorical.vars_0812)) 
+sum(duplicated(c(continuous.vars_0812, binary.vars_0812, ordinal.vars_0812, categorical.vars_0812)))  
+```
+
+
+
+```{r}
+#Set variable classes by type
+for (i in binary.vars_0812){
+  in.0812.data[,i]<-factor(in.0812.data[,i])}
+for (i in ordinal.vars_0812){
+  in.0812.data[,i]<-factor(in.0812.data[,i], ordered=T)}
+for (i in categorical.vars_0812){
+  in.0812.data[,i]<-factor(in.0812.data[,i],ordered=FALSE)}
+```
+
+
+```{r}
+#recheck classes
+classsum<-data.frame(varname=imp.vars0812, class=NA)
+for (i in imp.vars0812){
+  classsum[classsum$varname==i,"class"]<-(class(in.0812.data[,i])[1])
+}
+classsum
+```
+
+
+```{r}
+#Initiate imputations
+ini<-mice(in.0812.data, maxit=0, defaultMethod = c("pmm", "pmm", "pmm", "pmm"), seed=12345)
+  
+ini$method
+meth<-ini$method
+meth
+  
+ini$predictorMatrix
+pred<-ini$predictorMatrix
+```
+
+
+
+```{r}
+#Run imputations
+imp_pmm_all.0812<-mice(in.0812.data, m=40, maxit=10, pred=pred, meth=meth, 
+                       defaultMethod = c("pmm", "pmm", "pmm", "pmm"), seed=12345)
+```
+
+
+```{r}
+#examine diagnostics
+imp_pmm_all.0812$loggedEvents
+plot(imp_pmm_all.0812)
+```
+
+
+
+```{r}
+#Save final imputed datasetss
+temp_base0812i<-list()
+for (i in 1:40){
+  temp_base0812i[[i]]<-complete(imp_pmm_all.0812,action=i)
+    
+  temp_base0812i[[i]]<-cbind(base0812i$hhidpn, temp_base0812i[[i]][,imputation.vars_0812])
+  temp_base0812i[[i]][,"imp"]<-i
+}
+  
+cohort0812_final<-do.call(rbind,temp_base0812i)
+
+# save(cohort0812_final,
+#     file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/cohort0812_final_new.RData")
+```
+
+
+
+
+
+
+
+```{r}
+load("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/cohort0610_final_new.RData")
+
+load("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/cohort0812_final_new.RData")
+
+```
+
+
+```{r}
+nrow(cohort0610_final[cohort0610_final$imp==1,]) #1580 - yes!
+nrow(cohort0812_final[cohort0812_final$imp==1,]) #1336 - yes!
+
+names(cohort0610_final)[1] <- "hhidpn"
+names(cohort0812_final)[1] <- "hhidpn"
+```
+
+
+```{r}
+
+load("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/base0610i_new.RData")
+
+load("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/base0812i_new.RData")
+```
+
+
+
+
+```{r}
+cols_to_merge <- c("hhidpn", "baseline_year",
+                   "age06", "age08", "age10", "age12", "age14", "age16", "age18", "age20",
+                   "wordtot10", "wordtot12", "wordtot14", "wordtot16", "wordtot18", "wordtot20")
+
+cohort0610_final<-merge(cohort0610_final,base0610i[,cols_to_merge],by="hhidpn")
+
+cohort0812_final<-merge(cohort0812_final,base0812i[,cols_to_merge],by="hhidpn")
+```
+
+
+
+
+```{r}
+final_cohort<-full_join(
+  cohort0610_final,cohort0812_final,by=intersect(names(cohort0610_final),names(cohort0812_final)))  
+```
+
+
+```{r}
+#CFA
+ACE_vars<- c("police", "parent_drugs", "parent_abuse", "orphanage", "fosterhome", "parent_divorce")
+
+test_wordtot_data <- final_cohort[complete.cases(final_cohort[, ACE_vars]), ]
+
+
+```
+
+
+```{r}
+wordtot_mod2<-'aces =~ police + parent_drugs + parent_abuse + orphanage + 
+                      fosterhome + parent_divorce
+                      
+                      orphanage ~~ fosterhome'
+
+
+ACE_wordtot_CFA2_test <- cfa(wordtot_mod2, data=test_wordtot_data, ordered=ACE_vars)
+summary(ACE_wordtot_CFA2_test, fit.measures=T, standardized=T)
+#CFI =0.991(>0.9) RMSEA = 0.017(<0.08)
+#All vars load
+```
+
+
+```{r}
+
+imp_list <- unique(test_wordtot_data$imp)
+all_scores <- data.frame()
+for (i in imp_list) {
+  
+  wordtot_mod2<-'aces =~ police + parent_drugs + parent_abuse + orphanage + 
+                      fosterhome + parent_divorce
+                      
+                      orphanage ~~ fosterhome'
+  
+  test_wordtot_data_imp <- test_wordtot_data %>% 
+    filter(imp == i) 
+  
+  ACE_wordtot_CFA2_test <- cfa(wordtot_mod2, data = test_wordtot_data_imp, ordered = ACE_vars)
+  
+  factor_score <- lavPredict(ACE_wordtot_CFA2_test)
+  
+  df_scores <- data.frame(
+    hhidpn = test_wordtot_data_imp$hhidpn,
+    imp = i,
+    aces = factor_score
+  )
+  all_scores <- rbind(all_scores, df_scores) 
+}
+
+
+
+```
+
+
+
+
+
+```{r}
+#check
+imp_list_20 <- 20
+
+all_scores_20 <- data.frame()
+
+for (i in imp_list_20) {
+  
+  wordtot_mod2 <- '
+    aces =~ police + parent_drugs + parent_abuse + orphanage + 
+             fosterhome + parent_divorce
+             
+    orphanage ~~ fosterhome
+  '
+  
+  test_wordtot_data_imp <- test_wordtot_data %>% 
+    filter(imp == i) 
+  
+  ACE_wordtot_CFA2_test <- cfa(wordtot_mod2, data = test_wordtot_data_imp, ordered = ACE_vars)
+  
+  factor_score <- lavPredict(ACE_wordtot_CFA2_test)
+  
+  df_scores <- data.frame(
+    hhidpn = test_wordtot_data_imp$hhidpn,
+    imp = i,
+    aces = factor_score
+  )
+  
+  all_scores_20 <- rbind(all_scores_20, df_scores) 
+}
+#
+```
+
+
+
+```{r}
+#check
+imp_list_2 <- 2
+
+all_scores_2 <- data.frame()
+
+for (i in imp_list_2) {
+  
+  wordtot_mod2 <- '
+    aces =~ police + parent_drugs + parent_abuse + orphanage + 
+             fosterhome + parent_divorce
+             
+    orphanage ~~ fosterhome
+  '
+  
+  test_wordtot_data_imp <- test_wordtot_data %>% 
+    filter(imp == i) 
+  
+  ACE_wordtot_CFA2_test <- cfa(wordtot_mod2, data = test_wordtot_data_imp, ordered = ACE_vars)
+  
+  factor_score <- lavPredict(ACE_wordtot_CFA2_test)
+  
+  df_scores <- data.frame(
+    hhidpn = test_wordtot_data_imp$hhidpn,
+    imp = i,
+    aces = factor_score
+  )
+  
+  all_scores_2 <- rbind(all_scores_2, df_scores) 
+}
+#
+```
+
+
+
+```{r}
+#check
+table(round(all_scores_2$aces, 4)) %>% 
+  sort(decreasing = TRUE)
+
+#
+```
+
+
+```{r}
+#check
+all_scores_2 <- all_scores_2 %>%
+  inner_join(
+    final_cohort %>% 
+      filter(imp == 2) %>% 
+      select(hhidpn, all_of(ACE_vars)),
+    by = "hhidpn"
+  )
+
+#
+```
+
+
+
+
+```{r}
+#check
+table(round(all_scores_20$aces, 3)) %>% 
+  sort(decreasing = TRUE)
+
+#
+```
+
+```{r}
+#check
+all_scores_20 <- all_scores_20 %>%
+  inner_join(
+    final_cohort %>% 
+      filter(imp == 20) %>% 
+      select(hhidpn, all_of(ACE_vars)),
+    by = "hhidpn"
+  )
+
+#
+```
+
+
+
+
+
+```{r}
+identical(sort(unique(all_scores$imp)), 1:40)
+
+summary(all_scores$aces)
+```
+
+
+```{r}
+ggplot(all_scores, aes(x = aces)) +
+  geom_histogram(bins = 50, color = "black", fill = "skyblue") +
+  scale_x_continuous(
+    limits = c(-0.1, 1.1),
+    breaks = seq(-0.1, 1.1, by = 0.2)
+  ) +
+  labs(title = "Distribution of Factor Scores",
+       x = "Factor Score",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+
+
+
+```{r}
+all_scores_imp_20<- all_scores%>%
+  filter(imp==20)
+```
+
+
+```{r}
+summary(all_scores_imp_20$aces)
+```
+
+
+```{r}
+ggplot(all_scores_imp_20, aes(x = aces)) +
+  geom_histogram(bins = 50, color = "black", fill = "skyblue") +
+  scale_x_continuous(
+    limits = c(-0.1, 1.1),
+    breaks = seq(-0.1, 1.1, by = 0.2)
+  ) +
+  labs(title = "Distribution of Factor Scores from Imputation 20",
+       x = "Factor Score",
+       y = "Count") +
+  theme_minimal()
+```
+
+
+
+```{r}
+
+table(round(all_scores$aces, 3)) %>% 
+  sort(decreasing = TRUE) %>% 
+  head(10)
+
+```
+
+
+```{r}
+median(all_scores$aces)
+```
+
+
+```{r}
+#add cut point
+imp_list_all <- unique(test_wordtot_data$imp)
+cutpoint_df <- data.frame()
+
+for (i in imp_list_all) {
+  
+  final_cohort_i <- final_cohort %>%
+    filter(imp == i) %>%
+    select(hhidpn, imp, all_of(ACE_vars))
+  
+  scores_i <- all_scores %>%
+    filter(imp == i)
+  
+  merged_i <- final_cohort_i %>%
+    inner_join(scores_i, by = c("hhidpn", "imp"))
+  
+  cutpoint_i <- merged_i %>%
+    filter(if_all(all_of(ACE_vars), ~ .x == 0)) %>%
+    pull(aces) %>%
+    unique()
+  
+  cutpoint_df <- rbind(cutpoint_df, data.frame(imp = i, cutpoint = cutpoint_i))
+}
+
+
+
+
+
+```
+
+
+
+
+```{r}
+final_cohort_aces<-final_cohort%>%
+  inner_join(all_scores,by=(c("hhidpn","imp")))%>%
+  inner_join(cutpoint_df,by="imp")%>%
+  mutate(cutpoint_ace = ifelse(aces > cutpoint, 1, 0))
+```
+
+
+```{r}
+colnames(final_cohort_aces)
+```
+
+
+
+
+```{r}
+table(round(final_cohort_aces$aces, 3)) %>% 
+  sort(decreasing = TRUE) %>% 
+  head(10)
+```
+
+```{r}
+colnames(final_cohort_aces)
+```
+
+
+
+
+```{r}
+lifetime_vars <- grep("^(mlb|nlb)", names(final_cohort_aces), value = TRUE)
+
+final_cohort_aces$lifetime_experience <- ifelse(
+  rowSums(final_cohort_aces[lifetime_vars]!= 0, na.rm = TRUE) > 0,
+  1, 0
+)
+
+final_cohort_aces$lifetime_count <- rowSums(final_cohort_aces[lifetime_vars]!= 0, na.rm = TRUE)
+```
+
+
+```{r}
+childhood_vars <- c("police", "parent_drugs", "parent_abuse",
+                    "orphanage", "fosterhome", "parent_divorce", "parent_died")
+
+
+final_cohort_aces$childhood_experience <- ifelse(
+  rowSums(final_cohort_aces[childhood_vars] != 0, na.rm = TRUE) > 0,
+  1, 0
+)
+
+final_cohort_aces$childhood_count <- rowSums(final_cohort_aces[childhood_vars]!= 0, na.rm = TRUE)
+
+table(final_cohort_aces$childhood_experience,exclude=NULL)
+```
+
+
+
+```{r}
+mlb <- final_cohort_aces %>%
+  select(hhidpn, imp,baseline_year,starts_with("mlb_")) %>%
+  rename_with(~ str_remove(., "^mlb_")) %>%
+  mutate(trauma_year = 2010)
+
+nlb <- final_cohort_aces %>%
+  select(hhidpn, imp,baseline_year,starts_with("nlb_")) %>%
+  rename_with(~ str_remove(., "^nlb_")) %>%
+  mutate(trauma_year = 2012)
+```
+
+
+```{r}
+mlb<- na.omit(mlb)
+nlb<- na.omit(nlb)
+mlb_nlb <- bind_rows(mlb, nlb)
+```
+
+
+
+```{r}
+final_cohort_aces_clean <- final_cohort_aces %>%
+  select(-matches("^(mlb|nlb)_"))%>%
+  inner_join(mlb_nlb,by=c("hhidpn","imp","baseline_year"))
+```
+
+
+```{r}
+#baseline marital status
+final_cohort_aces_clean$maristat01<-ifelse(
+  final_cohort_aces_clean$maristat==1|final_cohort_aces_clean$maristat==2|final_cohort_aces_clean$maristat==3,1,0)
+```
+
+
+
+```{r}
+final_cohort_aces_clean$maristat01 = factor(final_cohort_aces_clean$maristat01, 
+                                       levels = c(1,0), 
+                                       labels = c("Married/partnered","Not married/partnered"))
+
+table(final_cohort_aces_clean$maristat01,exclude=NULL) 
+```
+
+
+```{r}
+
+final_cohort_aces_clean$srh01 <- ifelse(final_cohort_aces_clean$srh == 4 | final_cohort_aces_clean$srh == 5, 1, 0)
+
+final_cohort_aces_clean$srh01 <- factor(final_cohort_aces_clean$srh01, 
+                                        levels = c(0,1), 
+                                       labels = c("Excellent/very good/good","Fair/poor"))
+
+final_cohort_aces_clean$srh01 <- relevel(final_cohort_aces_clean$srh01, ref = "Fair/poor")
+table(final_cohort_aces_clean$srh01, exclude = NULL)
+
+```
+
+```{r}
+final_cohort_aces_clean$base_age_cent65<-final_cohort_aces_clean$baseline_age-65
+final_cohort_aces_clean$educ_cent12<-final_cohort_aces_clean$raedyrs-12
+```
+
+
+```{r}
+final_cohort_aces_clean$lifetime_experience <- factor(
+  final_cohort_aces_clean$lifetime_experience,
+  levels = c(0, 1),
+  labels = c('Unexposed','Exposed')
+)
+```
+
+
+```{r}
+final_cohort_aces_clean$childhood_experience <- factor(
+  final_cohort_aces_clean$childhood_experience,
+  levels = c(0, 1),
+  labels = c('Unexposed','Exposed')
+)
+```
+
+
+```{r}
+#cses_index centered at sample mean
+final_cohort_aces_clean <- final_cohort_aces_clean %>%
+  mutate(
+    centered_cses_index = cses_index - mean(cses_index))
+```
+
+
+```{r}
+vars <- c("centered_cses_index", "pedu_cat", "educ_cent12",
+          "bornsouth", "ragenderf", "raracemf", "maristat01", 
+          "srh01", "base_age_cent65", "childhood_experience", "lifetime_experience","lifetime_count")
+
+str(final_cohort_aces_clean[vars])
+
+```
+```{r}
+vars2 <- c("child_died","major_disaster","fire_weapon","sp_drugs","physical_attack","illness","life_threatening")
+str(final_cohort_aces_clean[vars2])
+```
+
+
+```{r}
+# saveRDS(final_cohort_aces_clean,
+#        file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_cohort_aces_clean_new.rds")
+```
+

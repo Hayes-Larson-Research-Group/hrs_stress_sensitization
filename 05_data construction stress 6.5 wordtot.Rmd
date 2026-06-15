@@ -1,0 +1,1031 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-03-28"
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(haven)
+library(stringr)
+library(dplyr)
+```
+
+
+1.Construct data set from RAND fat files and LHMS that includes
+trauma variables and childhood adveristy variables 
+
+
+```{r}
+if (Sys.info()["sysname"] == "Windows") {
+  data_directory <- "D:/OneDrive - University of Southern California/Data/HRS/RANDFatFiles"
+} else if (Sys.info()["sysname"] == "Darwin") { 
+  data_directory <- "/Users/eleanorhayes-larson/Library/CloudStorage/OneDrive-UniversityofSouthernCalifornia/Data/HRS/RANDFatFiles"
+}
+
+full_directory_names <- list.files(data_directory, full.names = TRUE) %>%
+  str_subset(pattern = "^*\\.sas7bdat")
+
+part_filenames <- list.files(data_directory, full.names = FALSE) %>%
+  str_subset(pattern = "^*\\.sas7bdat")
+```
+
+
+```{r}
+#hrsfilenames stores the file names.
+#full_directory_names stores the file paths
+hrsfilenames <-
+  lapply(X = part_filenames,
+         FUN = stringi::stri_sub,
+         to = -10)
+
+names(full_directory_names) <- hrsfilenames
+```
+
+
+```{r}
+# Only need 2004-2012 waves
+print(full_directory_names)
+full_directory_names$all_fat <- NULL # stacked data set with subset of vars
+full_directory_names$sasfmts <- NULL # sas format data
+full_directory_names$a95f2b <- NULL # 1995
+full_directory_names$ad95f2b <- NULL # 1995
+full_directory_names$h96f4a <- NULL # 1996
+full_directory_names$h98f2c <- NULL # 1998
+full_directory_names$hd98f2c <- NULL # 1998
+full_directory_names$h00f1d <- NULL # 2000
+full_directory_names$h02f2c <- NULL # 2002
+full_directory_names$h14f2b <- NULL # 2014
+full_directory_names$h16f2c <- NULL # 2016
+full_directory_names$h18f2b <- NULL # 2018
+full_directory_names$h20f1a <- NULL # 2020
+full_directory_names$h20e2a <- NULL # 2020
+full_directory_names$h06f3a <- NULL # old 2006
+full_directory_names$hd10f5f <- NULL # old 2010
+```
+
+
+```{r}
+print(full_directory_names)
+```
+
+
+
+```{r}
+## Read in fat files ---- 
+hrsfatfiles <- lapply(FUN = read_sas, X = full_directory_names)
+hrsfatfiles_clean <- list()
+```
+
+
+
+
+```{r}
+### filter variables of interest ----
+#trauma variables,childhood adversity variables:contains("b037k"), contains("b037l"), contains("b037m"), contains("b037n")
+for (i in 1:length(hrsfatfiles)){
+  colnames(hrsfatfiles[[i]]) <- tolower(colnames(hrsfatfiles[[i]]))
+  hrsfatfiles_clean[[i]] <- hrsfatfiles[[i]] %>% 
+    mutate(hrswave = full_directory_names[i],
+           hhidpn = str_pad(hhidpn,9,pad="0")) %>%
+    select(c(hhidpn, 
+    # 2006,2008,2010,2012: HAS A CHILD OF YOURS EVER DIED, SP OR CHILD HAVE LIFE-THREATENING, LIFE-THREATENING ILLNESS
+    #SP OR PARTNER ADDICTED TO DRUGS, BEEN IN A MAJOR FIRE OR DISASTER,FIRE A WEAPON IN COMBAT,DRINK DRUGS CAUSED FAMILY PROBS
+    #EVER VICTIM OF PHYSICAL ATTACK,PHYSICAL ABUSED BY PARENTS BF 18
+    #LB037H:AMOUNT TIME/ATTENTION MOTHER, LB037I:EFFORT FROM MOTHER, LB037J:AMT MOTHER TEACH ABOUT LIFE
+             contains("b037a"), contains("b037b"), contains("b037c"),
+             contains("b037d"), contains("b037e"), contains("b037f"), 
+             contains("b037g"), contains("b037h"), contains("b037i"),
+             contains("b037j"), contains("b037k"), contains("b037l"), contains("b037m"),
+             contains("b037n"),
+    #2004: EXP DEATH OF ANY CHILD OF YOURS,SP OR CHILD HAVE LIFE-THREATENING,VICTIM OF PHYSICAL ATTACK
+    #	LIFE-THREATENING ILLNESS,
+             contains("lb527")))
+}
+```
+
+
+
+
+
+```{r}
+### clean fat file data ----
+# Assign wave names to list and sort before binding
+names(hrsfatfiles_clean) <- names(hrsfatfiles)
+hrsfatfiles_clean <- hrsfatfiles_clean[c("h04f1c", "h06f4a",
+                                         "h08f3a", "hd10f6a", "h12f3a")]
+
+hrsfatfiles_join <- hrsfatfiles_clean %>% 
+  reduce(full_join, by = "hhidpn")
+```
+
+
+1.lifetime trauma
+
+```{r}
+#Filter to keep only columns related to trauma variables, a-g: lifetime trauma
+hrsfatfiles_join_subset <- hrsfatfiles_join %>%
+  select(hhidpn, 
+         contains("b037a"), contains("b037b"), contains("b037c"),
+         contains("b037d"), contains("b037e"), contains("b037f"), 
+         contains("b037g"),-matches(".*y$"))#Remove columns related to year
+```
+
+
+
+```{r}
+#trauma question in 2006 and 2010
+hrsfatfiles_join_km <- hrsfatfiles_join_subset %>%
+  select(hhidpn, starts_with("k"), starts_with("m"))%>% 
+  mutate(baseline_year=2006)
+```
+
+
+
+
+
+```{r}
+#Keep individuals who answered at least one question in both 2006 and 2010.
+k_cols <- grep("^k", names(hrsfatfiles_join_km), value = TRUE)
+m_cols <- grep("^m", names(hrsfatfiles_join_km), value = TRUE)
+
+hrsfatfiles_join_km_filter <- hrsfatfiles_join_km[
+  rowSums(!is.na(hrsfatfiles_join_km[, k_cols])) > 0 &
+  rowSums(!is.na(hrsfatfiles_join_km[, m_cols])) > 0,
+]
+#5528
+```
+
+
+
+
+
+```{r}
+#trauma question in 2008 and 2012
+hrsfatfiles_join_ln <- hrsfatfiles_join_subset %>%
+  select(hhidpn, starts_with("l"), starts_with("n"))%>% 
+  mutate(baseline_year=2008)
+```
+
+
+
+```{r}
+#Keep individuals who answered at least one question in both 2008 and 2012.
+l_cols <- grep("^l", names(hrsfatfiles_join_ln), value = TRUE)
+n_cols <- grep("^n", names(hrsfatfiles_join_ln), value = TRUE)
+
+hrsfatfiles_join_ln_filter <- hrsfatfiles_join_ln[
+  rowSums(!is.na(hrsfatfiles_join_ln[, l_cols])) > 0 &
+  rowSums(!is.na(hrsfatfiles_join_ln[, n_cols])) > 0,
+]
+#4742
+```
+
+
+
+2.childhood adversity(Core)
+
+```{r}
+#core childhood adversity
+#keep only childhood adversity
+hrsfatfiles_subset_childhood <- hrsfatfiles_join %>%
+  select(hhidpn, 
+         contains("b037l"), 
+         contains("b037m"),
+         contains("b037n"))
+```
+
+
+```{r}
+#childhood question in 2006
+k_cols2 <- hrsfatfiles_subset_childhood %>% 
+  select(starts_with("k")) %>% 
+  names()
+length(k_cols2)
+```
+
+
+```{r}
+#childhood question in 2006: KLB037I: DRINK DRUGS CAUSED FAMILY PROBS, KLB037J: PHYSICAL ABUSED BY PARENTS BF 18, no trouble with police before age 18 in 2006
+
+childhood_2006<-hrsfatfiles_join %>%
+  select(hhidpn, 
+         contains("klb037i"), 
+         contains("klb037j"))
+```
+
+
+```{r}
+core_childhood <- full_join(childhood_2006, hrsfatfiles_subset_childhood, by = "hhidpn")
+```
+
+
+```{r}
+names(core_childhood)
+```
+
+```{r}
+core_childhood <- core_childhood %>%
+  rename(
+    parent_drugs_2006 = klb037i,
+    parent_abuse_2006 = klb037j,
+    police_2008 = llb037l,
+    parent_drugs_2008 = llb037m,
+    parent_abuse_2008 = llb037n,
+    police_2010 = mlb037l,
+    parent_drugs_2010 = mlb037m,
+    parent_abuse_2010 = mlb037n,
+    police_2012= nlb037l,
+    parent_drugs_2012 = nlb037m,
+    parent_abuse_2012 = nlb037n
+  )
+```
+
+
+
+```{r}
+#change the order of columns
+core_childhood <- core_childhood %>%
+  select(
+    hhidpn,
+    parent_drugs_2006, parent_drugs_2008, parent_drugs_2010, parent_drugs_2012,
+    parent_abuse_2006, parent_abuse_2008, parent_abuse_2010, parent_abuse_2012,
+    police_2008, police_2010, police_2012
+  )
+```
+
+
+
+```{r}
+#Use the first non-NA value as the final selection
+core_childhood <- core_childhood %>%
+  mutate(
+    parent_drugs  = coalesce(parent_drugs_2006, parent_drugs_2008, parent_drugs_2010, parent_drugs_2012),
+    parent_abuse = coalesce(parent_abuse_2006, parent_abuse_2008, parent_abuse_2010, parent_abuse_2012),
+    police = coalesce(police_2008, police_2010, police_2012)
+  )%>%
+  select(hhidpn,parent_drugs,parent_abuse,police)
+
+#28043
+```
+
+
+
+```{r}
+any(duplicated(core_childhood$hhidpn))
+```
+
+
+
+3.childhood adversity(LHMS)
+
+```{r}
+setwd("D:/OneDrive - University of Southern California/Data/HRS/HRSRawData/Off-Year Studies/Life History")
+
+lhms1517 <- read_sas("./LHMS_Aggregate_2015_2017/lhms1517a_r.sas7bdat")
+lhms19spr <- read_sas("./LHMS19SPR/lhms19spr_r.sas7bdat")
+lhms19f <- read_sas("D:/OneDrive - University of Southern California/Data/HRS/HRSRawData/Off-Year Studies/Life History/LHMS19FLong/lhms19f_r.sas7bdat")
+```
+
+
+
+
+```{r}
+## create list of dataframes
+lhms_list <- list(lhms1517, lhms19spr,lhms19f)
+names(lhms_list) <- c("2017", "2019","2019") 
+lhms_clean <- list()
+```
+
+
+```{r}
+### filter LH2 variables from LHMS ----
+#childhood adveristy variables
+for (i in 1:length(lhms_list)) {
+  colnames(lhms_list[[i]]) <- tolower(colnames(lhms_list[[i]]))
+  colnames(lhms_list[[i]]) <- gsub("_19", "", colnames(lhms_list[[i]]))
+  lhms_clean[[i]] <- lhms_list[[i]] %>% 
+    mutate(hhidpn = str_pad(paste(hhid, pn, sep = ""), 9, pad = "0"),
+           lhms_year = names(lhms_list)[i]) %>%
+    select(any_of("hhidpn"),
+           matches("lh2[a-z]"),
+           lhms_year)
+}
+```
+
+
+```{r}
+names(lhms_clean) <- c("lhms1517", "lhms19spr", "lhms19f")
+```
+
+
+```{r}
+lhms1517 <- lhms_clean$lhms1517 %>%
+  rename(
+    orphanage = lh2a,
+    fosterhome  = lh2b,
+    parent_divorce = lh2d,
+    parent_died = lh2e
+  )
+
+lhms19spr <- lhms_clean$lhms19spr %>%
+  rename(
+    orphanage = lh2a,
+    fosterhome = lh2b,
+    parent_divorce = lh2d,
+    parent_died = lh2e
+  )
+
+lhms19f <- lhms_clean$lhms19f %>%
+  rename(
+    orphanage= lh2a,
+    fosterhome  = lh2b,
+    parent_divorce = lh2d,
+    parent_died = lh2e
+  )
+```
+
+
+```{r}
+add_suffix <- function(data, suffix) {
+  data %>%
+    select(hhidpn, orphanage, fosterhome, parent_divorce, parent_died) %>%
+    rename_with(~ paste0(.x, "_", suffix), -hhidpn)
+}
+
+lhms1517  <- add_suffix(lhms1517,  "1517")
+lhms19spr <- add_suffix(lhms19spr, "19spr")
+lhms19f   <- add_suffix(lhms19f,   "19f")
+```
+
+
+```{r}
+lhms_all <- reduce(
+  list(lhms1517, lhms19spr, lhms19f),
+  full_join,
+  by = "hhidpn"
+)
+```
+
+
+
+```{r}
+names(lhms_all)
+```
+
+```{r}
+lhms_all <- lhms_all %>%
+  select(
+    hhidpn,
+    starts_with("orphanage"),
+    starts_with("fosterhome"),
+    starts_with("parent_divorce"),
+    starts_with("parent_died")
+  )
+
+```
+
+
+
+```{r}
+lhms_all <- lhms_all %>%
+  mutate(
+    orphanage = coalesce(orphanage_1517, orphanage_19spr, orphanage_19f),
+    fosterhome = coalesce(fosterhome_1517, fosterhome_19spr, fosterhome_19f),
+    parent_divorce = coalesce(parent_divorce_1517, parent_divorce_19spr, parent_divorce_19f),
+    parent_died = coalesce(parent_died_1517, parent_died_19spr, parent_died_19f)
+  ) %>%
+  select(hhidpn, orphanage, fosterhome, parent_divorce, parent_died)
+
+#14936
+```
+
+```{r}
+any(duplicated(lhms_all$hhidpn))
+```
+
+```{r}
+#final childhood
+final_childhood<-core_childhood%>%
+  full_join(lhms_all,by="hhidpn")
+```
+
+
+```{r}
+cols <- setdiff(names(final_childhood), "hhidpn")
+cols
+
+final_childhood_filtered <- final_childhood %>%
+  filter(rowSums(!is.na(across(all_of(cols)))) > 0)
+#23458
+```
+
+
+4.Extract memory score variable from memory score data(cognitive data)
+
+
+```{r}
+#read memory score data
+if(Sys.info()["user"]=="user"){
+
+  memimp <- read_sas(paste0("D:/OneDrive - University of Southern California/Data/HRS/HRSCleanData/",
+                            "ImputedMemoryScores/",
+                            "dpmemimp_jan2024.sas7bdat"))
+
+}
+```
+
+
+```{r}
+colnames(memimp)
+```
+
+
+```{r}
+colnames(memimp) <- tolower(colnames(memimp))
+
+memimp_filter <- memimp %>% 
+  mutate(hhidpn = str_pad(paste(hhid, pn, sep=""),9,pad="0")) %>%
+  select(c(hhidpn, starts_with("age"), 
+           starts_with("word")))
+```
+
+
+```{r}
+colnames(memimp_filter)
+```
+
+
+```{r}
+memimp_filter <- memimp_filter %>%
+  mutate(
+    wordtot95 = wordi95 + wordd95,
+    wordtot96 = wordi96 + wordd96,
+    wordtot98 = wordi98 + wordd98,
+    wordtot00 = wordi00 + wordd00,
+    wordtot02 = wordi02 + wordd02,
+    wordtot04 = wordi04 + wordd04,
+    wordtot06 = wordi06 + wordd06,
+    wordtot08 = wordi08 + wordd08,
+    wordtot10 = wordi10 + wordd10,
+    wordtot12 = wordi12 + wordd12,
+    wordtot14 = wordi14 + wordd14,
+    wordtot16 = wordi16 + wordd16,
+    wordtot18 = wordi18 + wordd18,
+    wordtot20 = wordi20 + wordd20
+  )
+
+```
+
+
+
+```{r}
+colnames(memimp_filter)
+```
+
+```{r}
+memimp_filter <- memimp_filter %>%
+  select(hhidpn,starts_with("age"), starts_with("wordtot")) %>%
+  filter(if_any(c(starts_with("wordtot")), ~ !is.na(.)))
+#33476
+```
+
+
+
+
+
+
+
+```{r}
+#change to long format
+memimp_filter_long <- memimp_filter %>% 
+  pivot_longer(cols = -c(hhidpn),
+               names_to = c('.value',"hrswave"),
+               names_pattern = "(.*?)(\\d+)$") %>%
+  filter(!is.na(wordtot))
+```
+
+
+
+
+```{r}
+#for 2006/2010
+memimp_filter_10 <- memimp_filter_long %>%
+  mutate(hrswave = as.character(hrswave)) %>%
+  filter(hrswave %in% c( "10", "12", "14", "16", "18", "20"))
+
+```
+
+
+
+
+```{r}
+#2006/2010 convert back to wide format
+memimp_wide_10 <- memimp_filter_10 %>%
+  pivot_wider(
+    id_cols = hhidpn,
+    names_from = hrswave,
+    values_from = c(age, wordtot),
+    names_glue = "{.value}{hrswave}"
+  )
+#22788
+```
+
+
+
+```{r}
+#add age06 for baseline age
+memimp_wide_10  <- memimp_wide_10 %>%
+  left_join(select(memimp_filter, hhidpn, age06), 
+            by = "hhidpn")
+```
+
+
+```{r}
+sum(is.na(memimp_wide_10$age06))
+```
+
+
+
+```{r}
+#inner join memory score data and 2006/2010 trauma
+
+merged_10_km <- inner_join(memimp_wide_10, hrsfatfiles_join_km_filter, by = "hhidpn")
+#5093
+```
+
+
+```{r}
+sum(is.na(merged_10_km$age06))
+```
+
+
+
+
+```{r}
+#Keep only individuals with baseline_age >= 50
+merged_10_km <- merged_10_km %>%
+  filter(age06 >= 50) %>%
+  mutate(baseline_age = round(age06))
+
+#4941
+```
+
+
+
+
+
+```{r}
+#keep people who said "no" to all the lifetime trauma questions in 2006 
+k_cols_km <- grep("^k", names(merged_10_km), value = TRUE)
+merged_10_km <- merged_10_km[complete.cases(merged_10_km[, k_cols_km]), ]
+merged_10_km_filter <- merged_10_km[rowSums(merged_10_km[, k_cols_km] == 5) == length(k_cols_km), ]
+#1580
+```
+
+
+
+```{r}
+any(duplicated(merged_10_km_filter))
+```
+
+
+
+```{r}
+#2008/2012
+memimp_filter_12 <- memimp_filter_long %>%
+  mutate(hrswave = as.character(hrswave)) %>%
+  filter(hrswave %in% c("12", "14", "16", "18", "20"))
+```
+
+
+
+
+```{r}
+#2008/2012 convert back to wide format
+memimp_wide_12 <- memimp_filter_12 %>%
+  pivot_wider(
+    id_cols = hhidpn,
+    names_from = hrswave,
+    values_from = c(age, wordtot),
+    names_glue = "{.value}{hrswave}")
+
+#21255
+```
+
+
+```{r}
+#add age08 for baseline age
+memimp_wide_12 <- memimp_wide_12 %>%
+  left_join(select(memimp_filter, hhidpn, age08), 
+            by = "hhidpn")
+```
+
+
+```{r}
+sum(is.na(memimp_wide_12$age08))
+```
+
+
+
+```{r}
+#inner join memory score data and 2008/2012 trauma
+merged_12_ln <- inner_join(memimp_wide_12, hrsfatfiles_join_ln_filter, by = "hhidpn")
+#4263
+```
+
+
+```{r}
+sum(is.na(merged_12_ln$age08))
+```
+
+
+```{r}
+#Keep only individuals with baseline_age >= 50
+merged_12_ln <- merged_12_ln %>%
+  filter(age08 >= 50) %>%
+  mutate(baseline_age = round(age08))
+
+#4196
+```
+
+
+
+
+```{r}
+#keep people who said "no" to all the lifetime trauma questions in 2008
+l_cols_ln <- grep("^l", names(merged_12_ln), value = TRUE)
+merged_12_ln <- merged_12_ln[complete.cases(merged_12_ln[, l_cols_ln]), ]
+merged_12_ln_filter <- merged_12_ln[rowSums(merged_12_ln[, l_cols_ln] == 5) == length(l_cols_ln), ]
+#1336
+```
+
+
+```{r}
+any(duplicated(merged_12_ln_filter))
+```
+
+
+
+```{r}
+merged_km_with_childhood <- merged_10_km_filter %>%
+  inner_join(final_childhood_filtered, by = "hhidpn")
+#1580
+```
+
+
+```{r}
+merged_ln_with_childhood  <- merged_12_ln_filter %>%
+  inner_join(final_childhood_filtered, by = "hhidpn")
+#1336
+```
+
+
+```{r}
+common_cols <- intersect(names(merged_km_with_childhood), names(merged_ln_with_childhood))
+
+common_cols
+final_data_yr <- full_join(merged_ln_with_childhood, merged_km_with_childhood, by = common_cols)
+#2916
+```
+
+
+
+```{r}
+colnames(final_data_yr)
+```
+
+```{r}
+final_data_yr <- final_data_yr %>%
+  relocate(age06, age08, age10, .before = age12) %>%
+  relocate(wordtot10, .before = wordtot12) %>%
+  relocate(baseline_age, .after = age20) %>%
+  relocate(baseline_year, .after =wordtot20)
+
+colnames(final_data_yr)
+```
+
+
+
+
+
+```{r}
+###import rand
+rand <- read_sas("D:/OneDrive - University of Southern California/Data/HRS/RANDLongitudinal/RAND HRS Longitudinal File 2020/randhrs1992_2020v2_SAS/randhrs1992_2020v2.sas7bdat")
+
+cSES <- read_sas("D:/OneDrive - University of Southern California/Data/HRS/HRSRawData/Contributed Projects/Childhood Socioeconomic Status/cses_measures.sas7bdat")
+```
+
+
+```{r}
+names(rand) <- tolower(names(rand))
+names(cSES) <-tolower(names(cSES))
+
+rand <- rand %>% 
+  mutate(hhidpn = str_pad(hhidpn,9,pad="0"))
+
+cSES <- cSES %>% 
+  mutate(hhidpn = str_pad(paste(hhid, pn, sep=""),9,pad="0"))
+
+summary(cSES$cses_index)
+```
+
+
+
+```{r}
+rand.cov<-rand[,c("hhidpn","ragender","raracem","rahispan","raedyrs","raedegrm","raeduc","rameduc","rafeduc","rabplace","r8mstat","r9mstat","r8shlt","r9shlt")]
+```
+
+
+
+
+```{r}
+final_data_rand_cses <- final_data_yr %>%
+  left_join(rand.cov, by = "hhidpn") %>%
+  inner_join(
+    cSES %>% select(hhidpn, cses_index), 
+    by = "hhidpn"
+  )
+```
+
+
+```{r}
+summary(final_data_rand_cses$cses_index)
+```
+
+```{r}
+#baseline age: centered at 65 years
+final_data_rand_cses$baseline_age_cent65<-final_data_yr$baseline_age-65
+```
+
+
+```{r}
+#sex/gender
+final_data_rand_cses$ragenderf = factor(final_data_rand_cses$ragender, 
+                                       levels = c(1,2), 
+                                       labels = c("Male","Female"))
+
+#race
+final_data_rand_cses$raracemf = factor(final_data_rand_cses$raracem, 
+                                      levels = c(1,2,3), 
+                                      labels = c("White","Black","Other"))
+
+table(final_data_rand_cses$ragenderf,exclude=NULL)
+table(final_data_rand_cses$raracemf,exclude=NULL)
+```
+
+
+
+```{r}
+#educational attainment (continuous years, centered at 12 years)
+final_data_rand_cses$educ_cent12<-as.numeric(as.character(final_data_rand_cses$raedyrs))-12
+
+table(final_data_rand_cses$educ_cent12,exclude=NULL)
+```
+
+
+```{r}
+# highest parental education
+final_data_rand_cses$highestpedu <- pmax(final_data_rand_cses$rafeduc, 
+                                        final_data_rand_cses$rameduc, 
+                                        na.rm = TRUE)
+
+
+table(final_data_rand_cses$highestpedu, exclude = NULL)
+```
+
+
+```{r}
+final_data_rand_cses$pedu_cat<-ifelse(final_data_rand_cses$highestpedu<8,1,
+                         ifelse(final_data_rand_cses$highestpedu>=8&final_data_rand_cses$highestpedu<12,2,
+                                ifelse(final_data_rand_cses$highestpedu==12,3,
+                                       ifelse(final_data_rand_cses$highestpedu>12,4,NA))))
+
+table(final_data_rand_cses$pedu_cat,exclude=NULL)
+```
+
+
+
+```{r}
+final_data_rand_cses$pedu_cat = factor(
+  final_data_rand_cses$pedu_cat, levels = c(1,2,3,4), labels = c("<8 years", "8-<12 years","12 years",">12 years"))
+
+table(final_data_rand_cses$pedu_cat, exclude=NULL)
+```
+
+```{r}
+#12 years is ref
+final_data_rand_cses$pedu_cat <- relevel(final_data_rand_cses$pedu_cat, ref = "12 years")
+
+levels(final_data_rand_cses$pedu_cat)
+```
+
+
+```{r}
+#born in the South (including 5=S Atlantic, 6=ES Central, 7=WS Central)
+final_data_rand_cses$bornsouth<-ifelse(
+  final_data_rand_cses$rabplace==5|final_data_rand_cses$rabplace==6|final_data_rand_cses$rabplace==7,1,0)
+
+table(final_data_rand_cses$bornsouth,exclude=NULL) 
+```
+
+
+```{r}
+final_data_rand_cses$bornsouth = factor(final_data_rand_cses$bornsouth, 
+                                       levels = c(0,1), 
+                                       labels = c("No","Yes"))
+
+table(final_data_rand_cses$bornsouth,exclude=NULL) 
+```
+
+
+
+
+```{r}
+#marital status
+final_data_rand_cses <- final_data_rand_cses %>%
+  mutate(maristat = case_when(
+    baseline_year == 2006 ~ r8mstat,
+    baseline_year == 2008 ~ r9mstat,
+    TRUE ~ NA_real_ 
+  ))
+```
+
+
+```{r}
+table(final_data_rand_cses$maristat,exclude=NULL)
+```
+
+
+
+```{r}
+#baseline marital status
+final_data_rand_cses$maristat01<-ifelse(
+  final_data_rand_cses$maristat==1|final_data_rand_cses$maristat==2|final_data_rand_cses$maristat==3,1,0)
+
+table(final_data_rand_cses$maristat01, exclude=NULL) 
+```
+
+
+```{r}
+final_data_rand_cses$maristat01 = factor(final_data_rand_cses$maristat01, 
+                                       levels = c(1,0), 
+                                       labels = c("Married/partnered","Not married/partnered"))
+
+table(final_data_rand_cses$maristat01,exclude=NULL) 
+```
+
+
+```{r}
+#self-rated health
+final_data_rand_cses <- final_data_rand_cses %>%
+  mutate(srh = case_when(
+    baseline_year == 2006 ~ r8shlt,
+    baseline_year == 2008 ~ r9shlt,
+    TRUE ~ NA_real_ 
+  ))
+```
+
+
+```{r}
+table(final_data_rand_cses$srh,exclude=NULL)
+```
+
+
+```{r}
+#baseline self-rated health
+final_data_rand_cses$srh01<-ifelse(final_data_rand_cses$srh==4|final_data_rand_cses$srh==5,1,0)
+
+table(final_data_rand_cses$srh01, exclude=NULL)
+```
+
+
+```{r}
+final_data_rand_cses$srh01 = factor(final_data_rand_cses$srh01, 
+                                       levels = c(0,1), 
+                                       labels = c("Excellent/very good/good","Fair/poor"))
+
+table(final_data_rand_cses$srh01,exclude=NULL) 
+```
+
+
+```{r}
+#cses_index centered at sample mean
+final_data_rand_cses <- final_data_rand_cses %>%
+  mutate(
+    centered_cses_index = cses_index - mean(cses_index))
+```
+
+
+```{r}
+# saveRDS(final_data_rand_cses,
+#        file = "D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_data_rand_cses_new.rds")
+```
+
+
+```{r}
+final_data_rand_cses2 <- readRDS("D:/OneDrive - University of Southern California/R00/Manuscripts/HRS/Stress sensitization/Data/final_data_rand_cses.rds")
+```
+
+```{r}
+final_data_rand_cses2 <- final_data_rand_cses2 %>%
+  mutate(hhidpn = str_pad(hhidpn, width = 9, pad = "0"))
+
+```
+
+
+
+```{r}
+memimp <- memimp %>% 
+  mutate(hhidpn = str_pad(paste(hhid, pn, sep=""),9,pad="0"))
+
+memimp_proxy <- memimp %>%
+  select(hhidpn, ends_with("proxy"))
+
+```
+
+
+
+```{r}
+proxy_cols_m_to_r <- grep("^[m-r].*proxy$", names(memimp), value = TRUE)
+
+
+memimp_proxy_filtered <- memimp_proxy %>%
+  select(hhidpn, all_of(proxy_cols_m_to_r))
+```
+
+
+```{r}
+memimp_proxy_filtered[proxy_cols_m_to_r] <- lapply(memimp_proxy_filtered[proxy_cols_m_to_r], function(col) {
+  ifelse(col %in% c(1, 2), col, 0)
+})
+```
+
+
+```{r}
+memimp_proxy_filtered <- memimp_proxy_filtered %>%
+  filter(hhidpn %in% final_data_rand_cses2$hhidpn)
+```
+
+
+```{r}
+na_count_per_person <- memimp_proxy_filtered %>%
+  rowwise() %>%
+  mutate(n_nonzero_proxy = sum(c_across(-hhidpn) != 0, na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(hhidpn, n_nonzero_proxy)
+
+
+```
+
+```{r}
+table(na_count_per_person$n_nonzero_proxy,exclude=NULL)
+```
+
+
+```{r}
+wordtot_cols <- grep("^wordtot", names(final_data_rand_cses), value = TRUE)
+
+
+wordtot_non_na_count <- final_data_rand_cses %>%
+  select(hhidpn, all_of(wordtot_cols)) %>%
+  rowwise() %>%
+  mutate(non_na_wordtot = sum(!is.na(c_across(starts_with("wordtot"))))) %>%
+  ungroup() %>%
+  select(hhidpn, non_na_wordtot)
+
+
+```
+
+
+```{r}
+memimp_cols <- grep("^memimp", names(final_data_rand_cses2), value = TRUE)
+
+
+wordtot_non_na_count2 <- final_data_rand_cses2 %>%
+  select(hhidpn, all_of(memimp_cols)) %>%
+  rowwise() %>%
+  mutate(non_na_memimp = sum(!is.na(c_across(starts_with("memimp"))))) %>%
+  ungroup() %>%
+  select(hhidpn, non_na_memimp)
+```
+
+
+```{r}
+non_na_count<- left_join(wordtot_non_na_count2, wordtot_non_na_count, by = "hhidpn")
+
+```
+
+
+```{r}
+non_na_count <- non_na_count %>%
+  mutate(non_na_diff = non_na_memimp - non_na_wordtot)
+
+```
+
+
+```{r}
+table(non_na_count$non_na_diff,exclude=NULL)
+```
+
